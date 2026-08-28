@@ -12,11 +12,9 @@ Wrap-X es una plataforma conversacional con agentes de IA para la gestión comer
 
 ```
 Capstone/
-├── fase 1/                  # Definición del proyecto
-│   └── ENTREGABLES/         # Documentos completados y enviados
-├── Fase 2/                  # Desarrollo del proyecto (avance e informe final)
-├── Fase 3/                  # Presentación final
-└── Documentos generales/    # Cronograma, instructivo del curso y material de apoyo
+├── Fase 1/    # Definición del proyecto
+├── Fase 2/    # Desarrollo del proyecto (avance e informe final)
+└── Fase 3/    # Presentación final
 ```
 
 ## Fases
