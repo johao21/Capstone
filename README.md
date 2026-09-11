@@ -1,12 +1,12 @@
-# Capstone — Wrap-X
+# Capstone — SIRFA
 
-Repositorio de entregables y documentación del proyecto **Capstone** (asignatura final de Ingeniería Informática), correspondiente al proyecto **Wrap-X**.
+Repositorio de entregables y documentación del proyecto **Capstone** (asignatura final de Ingeniería Informática), correspondiente al proyecto **SIRFA**.
 
 ## Sobre el proyecto
 
-Wrap-X es una plataforma conversacional con agentes de IA para la gestión comercial de **Wrap-X Chile**, un taller de wrapping y estética vehicular. El sistema integra WhatsApp Cloud API, un motor cognitivo multiagente y un CRM/panel web, evolucionando un MVP en producción hacia un producto de estándar profesional (arquitectura documentada, pruebas automatizadas, contenedores Docker y endurecimiento de seguridad).
+SIRFA (Sistema de Recomendación de Fagos frente a Antibiorresistencia) es una plataforma web que apoya la selección de bacteriófagos frente a infecciones causadas por bacterias multirresistentes a antibióticos. Un laboratorio clínico registra un aislado bacteriano resistente y carga su genoma; un modelo de aprendizaje automático predice qué bacteriófagos de un banco curado tienen probabilidad de infectarlo, y un microbiólogo valida la recomendación antes de que se emita. La plataforma gestiona el ciclo completo de la solicitud con control de acceso por rol y registro de auditoría, y presenta un tablero de cobertura del banco de fagos y brechas terapéuticas.
 
-> Este repositorio contiene la documentación y entregables del curso Capstone. El código fuente de la plataforma Wrap-X se gestiona por separado.
+> Este repositorio contiene la documentación y entregables del curso Capstone. El código fuente de la plataforma SIRFA se gestiona por separado.
 
 ## Estructura
 
@@ -21,10 +21,10 @@ Capstone/
 
 | Fase | Estado | Descripción |
 |------|--------|-------------|
-| Fase 1 | ✅ Completada | Definición del proyecto, autoevaluaciones, diario de reflexión y presentación |
-| Fase 2 | 🔄 En curso | Desarrollo del proyecto bajo metodología Scrum (6 sprints) |
+| Fase 1 | ✅ Completada | Definición del proyecto, autoevaluaciones, diario de reflexión, Carta Gantt y presentación |
+| Fase 2 | ⏳ Pendiente | Desarrollo del proyecto bajo metodología ágil (Scrum adaptado) |
 | Fase 3 | ⏳ Pendiente | Presentación final |
 
 ## Autor
 
-Johao — [johaito@gmail.com](mailto:johaito@gmail.com)
+Johao Ramírez — [johaito@gmail.com](mailto:johaito@gmail.com)
