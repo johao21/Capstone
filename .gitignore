@@ -1,0 +1,12 @@
+﻿# Solo local: no se sube a GitHub
+app/
+apoyo/
+videos/
+Documentos generales/
+Fase 1/apoyo/
+Fase 1/instrucciones/
+Fase 2/instrucciones/
+Fase 3/instrucciones/
+.claude/
+CLAUDE.md
+~$*
