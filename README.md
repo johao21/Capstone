@@ -22,7 +22,7 @@ Capstone/
 | Fase | Estado | Descripción |
 |------|--------|-------------|
 | Fase 1 | ✅ Completada | Definición del proyecto, autoevaluaciones, diario de reflexión, Carta Gantt y presentación |
-| Fase 2 | ⏳ Pendiente | Desarrollo del proyecto bajo metodología ágil (Scrum adaptado) |
+| Fase 2 | 🔄 En curso | Desarrollo del proyecto en cascada: Informe de Avance con la SRS v0.2 y el Documento de Diseño v0.2 como adjuntos |
 | Fase 3 | ⏳ Pendiente | Presentación final |
 
 ## Autor
