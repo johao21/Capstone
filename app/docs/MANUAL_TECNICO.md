@@ -151,6 +151,6 @@ Con el sistema corriendo: `cd mobile`, `npm install` y `npm start`, y abrir con 
 
 ## 11. Limitaciones conocidas
 
-- Probado solo en Windows con Docker Desktop; sin HTTPS; la integración continua (GitHub Actions) está definida pero aún no se ha ejecutado en GitHub; la restauración de respaldos y el escalado de workers con el compose no se han probado.
+- Probado solo en Windows con Docker Desktop; sin HTTPS; la integración continua (GitHub Actions) se ejecutó en GitHub el 24-11-2026 y terminó sin errores, pero no se registra la cobertura; la restauración de respaldos y el escalado de workers con el compose no se han probado.
 - Rendimiento medido con 21 solicitudes y 305 fagos, no con la escala del diseño (1.000 solicitudes y 25.000 fagos).
 - La app móvil es un primer corte, verificado en un navegador y aún sin probar en un teléfono Android; no tiene notificaciones push.
