@@ -1,0 +1,218 @@
+/* Paleta y medidas en variables: el resto del archivo solo usa var(--...), así el tema se cambia en un solo lugar. */
+:root {
+  --fondo: #f6f8f7;
+  --superficie: #ffffff;
+  --texto: #17231f;
+  --texto-suave: #55645f;
+  --borde: #d6dfdb;
+  --primario: #0b6b52;
+  --primario-texto: #ffffff;
+  --primario-suave: #e2f1ec;
+  --ok: #17683f;
+  --ok-fondo: #e1f3e8;
+  --alerta: #8a5a00;
+  --alerta-fondo: #fff2d6;
+  --error: #a32121;
+  --error-fondo: #fde7e7;
+  --info: #1f4f8a;
+  --info-fondo: #e3edf9;
+  --neutro-fondo: #eceff0;
+  --sombra: 0 1px 2px rgba(20, 40, 33, 0.08);
+  --radio: 10px;
+}
+
+/* Tema oscuro: si el sistema del usuario está en modo oscuro, se redefinen las mismas variables. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #101815;
+    --superficie: #17221e;
+    --texto: #e7efec;
+    --texto-suave: #a3b4ae;
+    --borde: #2c3b35;
+    --primario: #4fc3a1;
+    --primario-texto: #06251b;
+    --primario-suave: #1b3a31;
+    --ok: #7fdca4;
+    --ok-fondo: #173a27;
+    --alerta: #f2c46d;
+    --alerta-fondo: #3b2f12;
+    --error: #ff9b9b;
+    --error-fondo: #421c1c;
+    --info: #9cc3f2;
+    --info-fondo: #18304d;
+    --neutro-fondo: #243029;
+    --sombra: none;
+  }
+}
+
+/* Base: el ancho de cada caja incluye relleno y borde, lo que facilita calcular los tamaños. */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Columna centrada: 1100 px como máximo y 16 px de margen en pantallas angostas. */
+.contenedor { width: min(1100px, 100% - 32px); margin-inline: auto; }
+
+/* Enlace "Saltar al contenido" para teclado: queda fuera de la pantalla hasta que recibe el foco. */
+.saltar { position: absolute; left: -999px; }
+.saltar:focus { left: 8px; top: 8px; background: var(--superficie); padding: 8px 12px; z-index: 10; }
+
+a { color: var(--primario); }
+/* Contorno bien visible para quien navega con el teclado. */
+:focus-visible { outline: 3px solid var(--primario); outline-offset: 2px; }
+
+/* Cabecera */
+.cabecera { background: var(--superficie); border-bottom: 1px solid var(--borde); }
+.cabecera__fila { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; padding-block: 12px; }
+.marca { display: flex; flex-direction: column; text-decoration: none; color: inherit; }
+.marca__nombre { font-size: 1.5rem; font-weight: 800; letter-spacing: 0.06em; color: var(--primario); line-height: 1.1; }
+.marca__lema { font-size: 0.8rem; color: var(--texto-suave); }
+.menu { display: flex; gap: 4px; }
+.menu a { padding: 8px 14px; border-radius: 8px; text-decoration: none; color: var(--texto); font-weight: 600; }
+.menu a:hover { background: var(--neutro-fondo); }
+.menu a[aria-current="page"] { background: var(--primario-suave); color: var(--primario); }
+
+/* Franja amarilla con el aviso del corte de avance (ver index.html). */
+.aviso { background: var(--alerta-fondo); color: var(--alerta); border-bottom: 1px solid var(--borde); font-size: 0.9rem; }
+.aviso .contenedor { padding-block: 8px; }
+
+main { padding-block: 24px 48px; outline: none; }
+.pie { border-top: 1px solid var(--borde); color: var(--texto-suave); font-size: 0.85rem; padding-block: 16px; }
+
+/* Tipografía y bloques */
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.15rem; margin: 0 0 12px; }
+h3 { font-size: 1rem; margin: 16px 0 6px; }
+.suave { color: var(--texto-suave); }
+.chico { font-size: 0.85rem; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.85em; word-break: break-all; }
+
+.tarjeta { background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio); box-shadow: var(--sombra); padding: 20px; margin-bottom: 20px; }
+/* Rejillas: una columna en pantallas angostas y dos desde 900 px. */
+.rejilla { display: grid; gap: 20px; }
+@media (min-width: 900px) { .rejilla--2 { grid-template-columns: 1fr 1fr; } }
+
+/* Tarjetas de totales de la pantalla de inicio. */
+.cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.cifra { background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio); padding: 14px 16px; }
+.cifra__valor { display: block; font-size: 1.8rem; font-weight: 800; line-height: 1.1; }
+.cifra__texto { color: var(--texto-suave); font-size: 0.85rem; }
+
+/* Formularios */
+.campo { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.campo label { font-weight: 600; font-size: 0.9rem; }
+.campo .ayuda { color: var(--texto-suave); font-size: 0.8rem; }
+input[type="text"], input[type="search"], select, textarea, input[type="file"] {
+  font: inherit; color: inherit; background: var(--fondo); border: 1px solid var(--borde); border-radius: 8px; padding: 9px 11px; width: 100%;
+}
+textarea { min-height: 70px; resize: vertical; }
+.fila-campos { display: grid; gap: 0 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+
+/* Botones: el principal es verde sólido; .secundario va solo con borde y .peligro en rojo. */
+button, .boton {
+  font: inherit; font-weight: 700; cursor: pointer; border-radius: 8px; padding: 10px 18px; border: 1px solid var(--primario);
+  background: var(--primario); color: var(--primario-texto); text-decoration: none; display: inline-block;
+}
+button:hover { filter: brightness(1.08); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+button.secundario { background: transparent; color: var(--primario); }
+button.peligro { background: transparent; color: var(--error); border-color: var(--error); }
+
+/* Mensajes en recuadro: error, ok, info y alerta. */
+.mensaje { border-radius: 8px; padding: 10px 14px; margin: 12px 0; font-size: 0.92rem; }
+.mensaje--error { background: var(--error-fondo); color: var(--error); }
+.mensaje--ok { background: var(--ok-fondo); color: var(--ok); }
+.mensaje--info { background: var(--info-fondo); color: var(--info); }
+.mensaje--alerta { background: var(--alerta-fondo); color: var(--alerta); }
+
+/* Tablas */
+.tabla-envoltorio { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--borde); vertical-align: top; }
+th { color: var(--texto-suave); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+tbody tr.clic { cursor: pointer; }
+tbody tr.clic:hover { background: var(--primario-suave); }
+/* Columnas numéricas: alineadas a la derecha y con cifras de ancho fijo para que se lean en columna. */
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.sin-cortar { white-space: nowrap; }
+
+/* Insignias */
+.insignia { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; white-space: nowrap; }
+.insignia--ok { background: var(--ok-fondo); color: var(--ok); }
+.insignia--curso { background: var(--info-fondo); color: var(--info); }
+.insignia--alerta { background: var(--alerta-fondo); color: var(--alerta); }
+.insignia--error { background: var(--error-fondo); color: var(--error); }
+.insignia--neutro { background: var(--neutro-fondo); color: var(--texto-suave); }
+
+/* Pasos */
+.pasos { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); list-style: none; padding: 0; margin: 0 0 4px; }
+.paso { border: 1px solid var(--borde); border-radius: var(--radio); padding: 12px 14px; background: var(--superficie); }
+.paso__titulo { font-weight: 700; display: block; }
+.paso__estado { font-size: 0.85rem; color: var(--texto-suave); }
+/* Colores del avance: hecho = verde, activo = azul, fallo = rojo y ausente = borde punteado. */
+.paso--hecho { border-color: var(--ok); background: var(--ok-fondo); }
+.paso--hecho .paso__estado { color: var(--ok); }
+.paso--activo { border-color: var(--info); background: var(--info-fondo); }
+.paso--activo .paso__estado { color: var(--info); }
+.paso--fallo { border-color: var(--error); background: var(--error-fondo); }
+.paso--fallo .paso__estado { color: var(--error); }
+.paso--ausente { border-style: dashed; }
+/* Etiqueta pequeña ("prototipo") junto al título de un paso. */
+.paso__etiqueta { font-size: 0.65rem; font-weight: 400; margin-left: 8px; padding: 1px 7px; border: 1px solid var(--borde); border-radius: 999px; color: var(--texto-suave); vertical-align: middle; }
+
+/* Listas de datos: la etiqueta a la izquierda y el valor a la derecha. */
+dl.datos { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 0; }
+dl.datos dt { color: var(--texto-suave); }
+dl.datos dd { margin: 0; word-break: break-word; }
+
+.acciones { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.paginacion { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.vacio { text-align: center; color: var(--texto-suave); padding: 24px 0; }
+.cabecera-vista { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 16px; }
+.cabecera-vista h1 { margin: 0; }
+
+/* ---- Acceso, roles y pantallas nuevas ---- */
+.cabecera__fila { gap: 8px 20px; }
+.menu { flex-wrap: wrap; flex: 1; justify-content: center; }
+.usuario { display: flex; align-items: center; gap: 10px; }
+.usuario__nombre { font-weight: 700; text-decoration: none; }
+.usuario button { padding: 6px 12px; }
+body.sin-sesion .usuario { display: none; }
+.tarjeta--angosta { max-width: 460px; margin-inline: auto; }
+.rejilla--3 { grid-template-columns: 1fr; }
+@media (min-width: 900px) { .rejilla--3 { grid-template-columns: repeat(3, 1fr); } }
+.pasos--5 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.oculto { display: none; }
+.tachada td { color: var(--texto-suave); text-decoration: line-through; }
+.tachada td .insignia, .tachada td .chico { text-decoration: none; }
+.en-linea { display: inline-flex; gap: 8px; align-items: center; }
+.en-linea select { width: auto; }
+.acciones-fila { display: flex; flex-wrap: wrap; gap: 6px; }
+.acciones-fila button { padding: 5px 10px; font-size: 0.8rem; }
+input[type="password"], input[type="date"], input[type="number"] { font: inherit; color: inherit; background: var(--fondo); border: 1px solid var(--borde); border-radius: 8px; padding: 9px 11px; width: 100%; }
+td select { width: auto; padding: 5px 8px; }
+details.explicacion summary { cursor: pointer; color: var(--primario); font-size: 0.85rem; }
+details.explicacion ul { margin: 4px 0; padding-left: 18px; }
+.tarjeta--emitida { border-color: var(--ok); }
+code { background: var(--neutro-fondo); padding: 1px 6px; border-radius: 4px; }
+
+/* Barras del tablero: etiqueta, pista con la barra y valor. Los grupos suprimidos van más claros. */
+.barras { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.barras li { display: grid; grid-template-columns: minmax(70px, 38%) 1fr auto; gap: 8px; align-items: center; font-size: 0.85rem; }
+.barras__pista { background: var(--neutro-fondo); border-radius: 999px; height: 12px; overflow: hidden; }
+.barras__barra { display: block; height: 100%; background: var(--primario); border-radius: 999px; }
+.barras__barra--suprimida { background: var(--borde); }
+.barras__valor { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* Al imprimir (guardar como PDF) solo sale la recomendación emitida, sin menús ni botones. */
+@media print {
+  body * { visibility: hidden; }
+  #recomendacion, #recomendacion * { visibility: visible; }
+  #recomendacion { position: absolute; left: 0; top: 0; width: 100%; border: none; box-shadow: none; }
+  .sin-imprimir { display: none !important; }
+}

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SIRFA — Recomendación de fagos</title>
+  <meta name="description" content="Sistema de Recomendación de Fagos frente a Antibiorresistencia (Klebsiella pneumoniae).">
+  <link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+  <!-- Enlace para saltar la cabecera al navegar con teclado o lector de pantalla (estilo .saltar). -->
+  <a class="saltar" href="#vista">Saltar al contenido</a>
+  <!-- Cabecera: marca, menú según el rol (lo llena js/main.js) y datos del usuario conectado. -->
+  <header class="cabecera">
+    <div class="contenedor cabecera__fila">
+      <a class="marca" href="#/" aria-label="SIRFA, ir al inicio">
+        <span class="marca__nombre">SIRFA</span>
+        <span class="marca__lema">Recomendación de fagos frente a antibiorresistencia</span>
+      </a>
+      <nav class="menu" id="menu" aria-label="Principal"></nav>
+      <div class="usuario" id="usuario"></div>
+    </div>
+  </header>
+
+  <!-- Aviso permanente: toda recomendación es una hipótesis a ensayar (RF-45). -->
+  <div class="aviso" role="note">
+    <div class="contenedor">
+      <strong>SIRFA no diagnostica ni prescribe.</strong>
+      Toda recomendación es una hipótesis priorizada que debe ensayarse en laboratorio antes de cualquier uso clínico.
+    </div>
+  </div>
+
+  <!-- Aquí js/main.js dibuja cada pantalla. aria-live hace que los lectores de pantalla anuncien los cambios. -->
+  <main id="vista" class="contenedor" tabindex="-1" aria-live="polite"></main>
+
+  <footer class="pie">
+    <div class="contenedor">Proyecto APT · Duoc UC · Cuentas de demostración: el sistema no opera con pacientes ni datos identificables.</div>
+  </footer>
+
+  <!-- Sin compilación ni librerías: módulos ES nativos. El script va al final para que #vista ya exista cuando se ejecute. -->
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
