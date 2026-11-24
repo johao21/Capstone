@@ -1,0 +1,102 @@
+# Bases de datos, API con la web, y los workers del pipeline genómico y de la predicción.
+# Uso: cp .env.example .env && docker compose up --build
+
+name: sirfa-repo
+
+# Bloque reutilizable (ancla YAML): la API y el worker usan la misma imagen, las mismas variables de entorno y los mismos volúmenes;
+# solo cambia el comando que ejecutan (decisión D-03).
+x-backend: &backend
+  image: sirfa-backend:dev
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  env_file: .env
+  restart: unless-stopped
+  # genomas: FASTA subidos (cada archivo se guarda con su SHA-256 como nombre). analisis: salidas de Kaptive y Prodigal por solicitud.
+  # ./data: referencias de especie y tablas descargadas, visibles también desde el equipo.
+  volumes:
+    - genomas:/data/genomas
+    - analisis:/data/analisis
+    - ./data:/app/data
+    # Modelo entrenado (ml.entrenar lo escribe aquí) y contraseñas de las cuentas de demostración (en ./data).
+    - ./ml/models:/app/ml/models
+
+services:
+  # Base relacional: solicitudes, cola de trabajos y banco de fagos. No publica puertos: solo la ven los otros contenedores.
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Base de documentos: resultado crudo del análisis genómico. Tampoco publica puertos.
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  # API (FastAPI) y web. No arranca hasta que PostgreSQL y MongoDB pasan su healthcheck.
+  api:
+    <<: *backend
+    # Primero aplica las migraciones de la base de datos (Alembic) y luego arranca el servidor.
+    command: >
+      sh -c "alembic -c backend/alembic.ini upgrade head &&
+             uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000"
+    # Publica la web y la API en el puerto 8000 de este equipo. Sin dirección de enlace, el puerto queda abierto también a la red local;
+    # para dejarlo solo en este equipo se escribe "127.0.0.1:8000:8000".
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/api/v1/salud"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Worker del pipeline genómico: consume la cola de trabajos de PostgreSQL y no publica puertos.
+  # Espera a que la API esté sana: para entonces ya se aplicaron las migraciones y las tablas existen.
+  worker-pipeline:
+    <<: *backend
+    command: python -m pipeline.worker --tipos pipeline
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Worker de predicción: toma los trabajos `prediccion`, genera el ranking de fagos con el modelo (XGBoost + SHAP) y deja la
+  # solicitud lista para validar. Misma imagen que los demás (decisión D-03); el modelo se lee de ml/models.
+  worker-prediction:
+    <<: *backend
+    command: python -m pipeline.worker --tipos prediccion
+    depends_on:
+      api:
+        condition: service_healthy
+
+# Volúmenes con nombre: los datos sobreviven a `docker compose down` y solo se pierden con `docker compose down -v`.
+volumes:
+  pgdata:
+  mongodata:
+  genomas:
+  analisis:

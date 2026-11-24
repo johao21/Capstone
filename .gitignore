@@ -1,5 +1,4 @@
-﻿# Solo local: no se sube a GitHub
-app/
+﻿# Solo local: no se sube a GitHub (el codigo vive en app/ y SI se versiona)
 apoyo/
 videos/
 Documentos generales/
@@ -8,3 +7,8 @@ Fase 1/instrucciones/
 Fase 2/instrucciones/
 Fase 3/instrucciones/
 ~$*
+
+borradores/
+
+# Capturas personales (por ejemplo, de la página de notas): no se suben
+notas*.png
