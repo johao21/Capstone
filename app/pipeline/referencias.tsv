@@ -1,0 +1,17 @@
+# Genomas de referencia para identificar la especie con Mash (RF-20).
+# Todos son ensamblados completos de RefSeq; cada accesión se verificó en NCBI Datasets el 2026-10-27.
+# Columnas separadas por tabulador: accesión, nombre del ensamblado, especie, cepa.
+# Los genomas de prueba (MGH 78578, Sakai, etc.) NO deben agregarse aquí: se usan para validar.
+GCF_000240185.1	ASM24018v2	Klebsiella pneumoniae	HS11286
+GCF_000009885.1	ASM988v1	Klebsiella pneumoniae	NTUH-K2044
+GCF_020525545.1	ASM2052554v1	Klebsiella variicola	F2R9T
+GCF_020099175.1	ASM2009917v1	Klebsiella quasipneumoniae	FDAARGOS_1503
+GCF_900636985.1	45889_C01	Klebsiella oxytoca	NCTC13727
+GCF_019048125.1	ASM1904812v1	Klebsiella aerogenes	FDAARGOS_1442
+GCF_905331265.2	AI2999v1_cpp	Enterobacter cloacae	AI2999
+GCF_000005845.2	ASM584v2	Escherichia coli	K-12 MG1655
+GCF_000006945.2	ASM694v2	Salmonella enterica	LT2
+GCF_904859905.1	MSB1_1H	Citrobacter freundii	MSB1_1H
+GCF_030291735.1	ASM3029173v1	Serratia marcescens	ELP1.10
+GCF_009035845.1	ASM903584v1	Acinetobacter baumannii	ATCC 19606
+GCF_000006765.1	ASM676v1	Pseudomonas aeruginosa	PAO1
