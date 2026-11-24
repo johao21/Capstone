@@ -60,8 +60,8 @@ Se copian de `.env.example` a `.env`, que no se versiona. Las que importan:
 1. **Clonar el repositorio** y entrar a la carpeta del código.
 
 ```bash
-git clone URL_DEL_REPOSITORIO
-cd sirfa
+git clone https://github.com/johao21/Capstone.git
+cd Capstone/app
 ```
 
 2. **Crear el `.env`** y cambiar las claves. Una clave segura se genera con el comando de abajo.
