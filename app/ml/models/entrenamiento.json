@@ -1,0 +1,46 @@
+{
+  "entrenado_en": "2026-11-02T03:57:55.607859+00:00",
+  "segundos": 280.5,
+  "fuente": {
+    "nombre": "PhageHostLearn (Boeckaerts et al., 2024)",
+    "version": "Zenodo 11061100, v2",
+    "url": "https://doi.org/10.5281/zenodo.11061100",
+    "md5": {
+      "Locibase.json": "968cc6e96ff284593fa0354addf403fc",
+      "RBPbase.csv": "fc235f3acfcd4dcadb71527bdf6704a3",
+      "all_loci_score_matrix.txt": "33d6a332e74d04428434a728deac0ece",
+      "esm2_embeddings_loci.csv": "f13af74b8ebad5c42cbde3c1552abb89",
+      "esm2_embeddings_rbp.csv": "f70e85f6bd94bb5687f2aeb938b60b19",
+      "phage_host_interactions.csv": "e4f7f15779f698f3b0f76164c9d44f22",
+      "phages_genomes.zip": "f43159fd3473e2d22a56fec27e8d443c"
+    }
+  },
+  "parametros_xgboost": {
+    "n_estimators": 300,
+    "max_depth": 4,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.3,
+    "min_child_weight": 1,
+    "reg_lambda": 1.0,
+    "tree_method": "hist",
+    "n_jobs": 4,
+    "random_state": 7,
+    "eval_metric": "logloss"
+  },
+  "calibracion": {
+    "metodo": "Platt sobre predicciones fuera de muestra (validación por cepa)",
+    "a": 0.728907555231237,
+    "b": -2.3429895984107794,
+    "frecuencia_observada": 0.0333,
+    "probabilidad_media_calibrada": 0.0333
+  },
+  "umbral_similitud_locus": 0.9,
+  "versiones": {
+    "python": "3.12.16",
+    "xgboost": "3.4.1",
+    "shap": "0.54.1",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.5.4"
+  }
+}

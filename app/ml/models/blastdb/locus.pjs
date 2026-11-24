@@ -1,0 +1,22 @@
+{
+  "version": "1.2",
+  "dbname": "locus",
+  "dbtype": "Protein",
+  "db-version": 5,
+  "description": "ml/models/locus_proteinas.faa",
+  "number-of-letters": 1476681,
+  "number-of-sequences": 3880,
+  "last-updated": "2026-11-02T03:57:00",
+  "number-of-volumes": 1,
+  "bytes-total": 1878031,
+  "bytes-to-cache": 1511714,
+  "files": [
+    "locus.pdb",
+    "locus.phr",
+    "locus.pin",
+    "locus.pot",
+    "locus.psq",
+    "locus.ptf",
+    "locus.pto"
+  ]
+}

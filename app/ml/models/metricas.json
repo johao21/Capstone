@@ -1,0 +1,44 @@
+{
+  "validacion_por_locus": {
+    "auc": 0.6181,
+    "precision_media": 0.1465,
+    "top5": 0.4962,
+    "top5_azar": 0.2186,
+    "cepas_evaluadas_top5": 131,
+    "umbral_sugerido": 0.3537,
+    "sensibilidad": 0.3604,
+    "especificidad": 0.9106,
+    "pares_evaluados": 10006,
+    "pares_positivos": 333,
+    "linea_base_frecuencia_del_fago": {
+      "auc": 0.5962,
+      "top5": 0.5191
+    },
+    "esquema": "validación cruzada de 5 pliegues agrupada por tipo de locus K (similitud ≥ 0.90)"
+  },
+  "validacion_por_cepa": {
+    "auc": 0.7597,
+    "precision_media": 0.2474,
+    "top5": 0.7939,
+    "top5_azar": 0.2186,
+    "cepas_evaluadas_top5": 131,
+    "umbral_sugerido": 0.502,
+    "sensibilidad": 0.5435,
+    "especificidad": 0.9405,
+    "pares_evaluados": 10006,
+    "pares_positivos": 333,
+    "linea_base_frecuencia_del_fago": {
+      "auc": 0.6679,
+      "top5": 0.6031
+    },
+    "esquema": "validación cruzada de 5 pliegues agrupada por cepa"
+  },
+  "datos": {
+    "cepas": 200,
+    "fagos": 105,
+    "rbp": 274,
+    "pares_ensayados": 10006,
+    "pares_positivos": 333,
+    "filas_de_entrenamiento": 25120
+  }
+}
