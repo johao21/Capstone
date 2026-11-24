@@ -1,0 +1,51 @@
+# Integración continua: corre las pruebas automáticas en cada push a main y en cada pull request.
+# Es la misma suite que se ejecuta en local (docker compose exec api pytest y npm test en mobile/). El codigo esta en app/.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    name: API, pipeline y modelo (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/backend/requirements.txt
+      # BLAST+ lo usan las pruebas del modelo (comparan el locus K del aislado con las cepas de entrenamiento); sin él se omiten.
+      - name: Instalar BLAST+
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ncbi-blast+
+      - name: Instalar dependencias
+        run: pip install -r backend/requirements.txt
+      # pytest.ini ya fija la ruta de los módulos y la carpeta de pruebas. Las pruebas usan SQLite en memoria y herramientas
+      # simuladas, así que no necesitan Docker, PostgreSQL ni el resto de las herramientas bioinformáticas. La prueba de
+      # concurrencia con PostgreSQL real se omite aquí (necesita SIRFA_TEST_POSTGRES_DB).
+      - name: Ejecutar pruebas
+        run: pytest -q
+
+  movil:
+    name: App móvil (node --test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/mobile/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Ejecutar pruebas
+        run: npm test
