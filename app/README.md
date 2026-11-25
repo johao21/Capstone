@@ -281,7 +281,7 @@ El estado es el del 02-11-2026 (semana 13); las filas 1.x a 3.6 son las del Info
 
 ## Historial del repositorio
 
-El código se desarrolló entre el 01-09 y el 18-11-2026 en una carpeta local, con un único commit inicial («Estructura inicial del proyecto SIRFA», 01-09) que no se conservó en este repositorio. Se publicó aquí en la semana 16, al final de ese desarrollo y en commits por componente. La integración continua (GitHub Actions) está en `.github/workflows/ci.yml`, en la raíz del repositorio; corrió por primera vez en GitHub el 24-11-2026 y terminó sin errores. **Las fechas de esos commits son las de la publicación; no reflejan cuándo se escribió cada parte.** La cronología real de las etapas (plan contra lo ocurrido) está en el Informe de Avance y en el Informe Final, y el estado del control de versiones durante el desarrollo se explica en el anexo F de este último (repositorio de documentos).
+El código se desarrolló entre el 01-09 y el 18-11-2026 en una carpeta local, con un único commit inicial («Estructura inicial del proyecto SIRFA», 01-09) que no se conservó en este repositorio. Se publicó aquí en la semana 16, al final de ese desarrollo y en commits por componente. La integración continua (GitHub Actions) está en `.github/workflows/ci.yml`, en la raíz del repositorio; corrió por primera vez en GitHub el 24-11-2026 y terminó sin errores. **Las fechas de esos commits son las de la publicación; no reflejan cuándo se escribió cada parte.** La cronología real de las etapas (plan contra lo ocurrido) está en el Informe de Avance y en el Informe Final, y el estado del control de versiones durante el desarrollo se explica en la sección 5 (Evidencias) de este último (repositorio de documentos).
 
 ---
 
