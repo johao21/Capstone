@@ -7,7 +7,7 @@
 | **Proyecto** | SIRFA, proyecto de título individual (Capstone PTY4614 / APT122, Duoc UC) |
 | **Versión y fecha** | 1.0 · 23 de noviembre de 2026 |
 | **Autor** | Johao Ramírez (desarrollador único) |
-| **Probado en** | Windows 11 con Docker Desktop (WSL2), Docker 29 y Compose 5, el 15-11-2026; la app móvil, el 18-11-2026 |
+| **Probado en** | Windows 11 con Docker Desktop (WSL2), Docker 29 y Compose 5, el 15-11-2026; la app móvil, en el navegador el 18-11-2026 y en teléfonos Android con Expo Go el 25-11-2026 |
 
 ## 1. Propósito y alcance
 
@@ -121,7 +121,7 @@ En Windows, `iniciar_sirfa.bat` enciende Docker Desktop, levanta los servicios y
 
 ```bash
 docker compose exec api pytest      # API y pipeline: 212 pruebas
-cd mobile && npm test               # app móvil: 29 pruebas de su lógica
+cd mobile && npm test               # app móvil: 38 pruebas de su lógica
 ```
 
 La prueba de concurrencia necesita una base PostgreSQL desechable y se omite sin ella: se activa con `SIRFA_TEST_POSTGRES_DB=sirfa_test` y se niega a usar la base real. La interfaz de la web y de la app no tienen pruebas automáticas. En GitHub, las mismas pruebas están configuradas para correr en cada push (`.github/workflows/ci.yml`).
@@ -153,4 +153,4 @@ Con el sistema corriendo: `cd mobile`, `npm install` y `npm start`, y abrir con 
 
 - Probado solo en Windows con Docker Desktop; sin HTTPS; la integración continua (GitHub Actions) se ejecutó en GitHub el 24-11-2026 y terminó sin errores, pero no se registra la cobertura; la restauración de respaldos y el escalado de workers con el compose no se han probado.
 - Rendimiento medido con 21 solicitudes y 305 fagos, no con la escala del diseño (1.000 solicitudes y 25.000 fagos).
-- La app móvil es un primer corte, verificado en un navegador y aún sin probar en un teléfono Android; no tiene notificaciones push.
+- La app móvil es un primer corte: se probó a mano en teléfonos Android con Expo Go (25-11-2026), pero su interfaz no tiene pruebas automáticas, no tiene notificaciones push y no se compiló como aplicación instalable (eso exigiría HTTPS).

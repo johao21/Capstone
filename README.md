@@ -12,11 +12,11 @@
 
 > SIRFA no diagnostica ni prescribe: toda recomendación es una hipótesis priorizada que debe ensayarse en laboratorio antes de cualquier uso clínico.
 
-## Estado (18-11-2026)
+## Estado (25-11-2026)
 
 - Funciona el ciclo completo: registro del aislado, análisis, predicción, validación por el microbiólogo, recomendación y alertas. Son 47 operaciones de API, 5 roles y 20 de las 24 tablas diseñadas.
-- 212 pruebas automáticas del sistema (211 con SQLite en memoria y 1 de concurrencia contra PostgreSQL real) y 29 de la lógica de la app móvil.
-- Límites que importan: el modelo se entrenó con 200 cepas y 105 fagos del conjunto público PhageHostLearn y, ante un tipo de locus K que no vio, no supera a una línea base simple (lo marca de baja confianza); la web es JavaScript sin compilar, no Next.js; la app móvil es un primer corte verificado en el navegador, no en un teléfono, y sin notificaciones push.
+- 212 pruebas automáticas del sistema (211 con SQLite en memoria y 1 de concurrencia contra PostgreSQL real) y 38 de la lógica de la app móvil.
+- Límites que importan: el modelo se entrenó con 200 cepas y 105 fagos del conjunto público PhageHostLearn y, ante un tipo de locus K que no vio, no supera a una línea base simple (lo marca de baja confianza); la web es JavaScript sin compilar, no Next.js; la app móvil es un primer corte de consulta y alertas, probada en teléfonos Android con Expo Go y sin notificaciones push.
 
 El detalle está en [`app/README.md`](app/README.md).
 

@@ -2,7 +2,7 @@
 
 Proyecto de título — Capstone PTY4614 / APT122, Ingeniería en Informática, Duoc UC sede San Joaquín, segundo semestre 2026.
 
-> **Estado al 18-11-2026 (semana 16).** Funciona el ciclo completo: un técnico registra el genoma de un aislado de *Klebsiella pneumoniae*; el pipeline lo analiza (calidad, especie, locus K, genes); el modelo (XGBoost sobre embeddings ESM-2, con explicación SHAP) ordena los fagos aprobados del banco; un microbiólogo valida y emite la recomendación; el técnico y el clínico reciben la alerta. Hay inicio de sesión con JWT, permisos por rol, auditoría de solo adición con hashes encadenados, y tablero. **Límites que importan:** el modelo se entrenó con 200 cepas y 105 fagos del conjunto público PhageHostLearn y, ante un tipo de locus K que no vio, no supera a la línea base que ignora al hospedador (ver «Calidad del modelo»); la app móvil es un primer corte de consulta y alertas (verificada en el navegador, no en un teléfono, y sin notificaciones push); la web son módulos JavaScript sin compilar, no Next.js. Toda recomendación es una hipótesis a ensayar en laboratorio.
+> **Estado al 25-11-2026 (semana 16).** Funciona el ciclo completo: un técnico registra el genoma de un aislado de *Klebsiella pneumoniae*; el pipeline lo analiza (calidad, especie, locus K, genes); el modelo (XGBoost sobre embeddings ESM-2, con explicación SHAP) ordena los fagos aprobados del banco; un microbiólogo valida y emite la recomendación; el técnico y el clínico reciben la alerta. Hay inicio de sesión con JWT, permisos por rol, auditoría de solo adición con hashes encadenados, y tablero. **Límites que importan:** el modelo se entrenó con 200 cepas y 105 fagos del conjunto público PhageHostLearn y, ante un tipo de locus K que no vio, no supera a la línea base que ignora al hospedador (ver «Calidad del modelo»); la app móvil es un primer corte de consulta y alertas (probada en teléfonos Android con Expo Go, sin notificaciones push); la web son módulos JavaScript sin compilar, no Next.js. Toda recomendación es una hipótesis a ensayar en laboratorio.
 
 ---
 
@@ -55,8 +55,8 @@ Todo el ciclo queda trazado con **control de acceso por rol** y **registro de au
 | Autenticación, roles y auditoría | Construido | JWT (sesión deslizante y cierre de sesión), 5 roles con alcance de datos, bloqueo tras 5 intentos fallidos, Argon2; auditoría con disparador de solo adición en PostgreSQL y cadena de hashes verificable |
 | Web | Construida | HTML, CSS y módulos JavaScript sin compilar, servidos por la API, con pantallas por rol; no es la web con Next.js del diseño |
 | Tablero | Construido | Cobertura del banco, brechas terapéuticas y tendencias, con supresión de grupos pequeños y exportación a CSV |
-| App móvil | Primer corte | Hecha desde cero en la semana 15 (React Native con Expo): ingreso, lista de solicitudes, detalle con la recomendación emitida en solo lectura y bandeja de alertas. Verificada en el navegador contra la API real; **sin probar todavía en un teléfono o emulador Android** y sin notificaciones push (RF-66). Ver [mobile/README.md](mobile/README.md) |
-| Pruebas | 212 pasan + 29 de la app móvil | pytest dentro del contenedor: 211 con SQLite en memoria y una de concurrencia contra PostgreSQL real (se activa con `SIRFA_TEST_POSTGRES_DB`); además, un recorrido completo contra el sistema real. La app móvil tiene 29 pruebas de su lógica (`npm test` en `mobile/`); su interfaz no tiene pruebas automáticas. La integración continua (`.github/workflows/ci.yml`) corre `pytest` y `npm test` en cada push; se verificó en local con una instalación limpia y corrió por primera vez en GitHub el 24-11-2026, donde terminó sin errores (no mide cobertura) |
+| App móvil | Construida, sin push | Hecha desde cero en la semana 15 (React Native con Expo): ingreso, lista de solicitudes, detalle con la recomendación emitida en solo lectura y bandeja de alertas. Verificada primero en el navegador y **probada a mano en teléfonos Android con Expo Go el 25-11-2026**, contra la API real: ingreso, lista y filtros, detalle con la recomendación, alertas, cierre de sesión y vista por rol. Sin notificaciones push (RF-66). Ver [mobile/README.md](mobile/README.md) |
+| Pruebas | 212 pasan + 38 de la app móvil | pytest dentro del contenedor: 211 con SQLite en memoria y una de concurrencia contra PostgreSQL real (se activa con `SIRFA_TEST_POSTGRES_DB`); además, un recorrido completo contra el sistema real. La app móvil tiene 38 pruebas de su lógica y de lo que dibuja (`npm test` en `mobile/`); su interfaz no tiene pruebas automáticas. La integración continua (`.github/workflows/ci.yml`) corre `pytest` y `npm test` en cada push; se verificó en local con una instalación limpia y corrió por primera vez en GitHub el 24-11-2026, donde terminó sin errores (no mide cobertura) |
 
 Las cuentas son de demostración: el sistema no opera con pacientes ni datos identificables.
 
@@ -243,7 +243,7 @@ Se elige porque los requisitos del sistema pueden especificarse por completo des
 
 ### Hoja de ruta (tareas específicas)
 
-El estado es el del 02-11-2026 (semana 13); las filas 1.x a 3.6 son las del Informe de Avance.
+El estado es el del 02-11-2026 (semana 13), salvo las filas 3.14 y 4.4 a 5.3, que son del 25 y 26-11-2026 (semana 16); las filas 1.x a 3.6 son las del Informe de Avance.
 
 | Tarea | Semanas | OE | Estado |
 |---|---|---|---|
@@ -267,14 +267,14 @@ El estado es el del 02-11-2026 (semana 13); las filas 1.x a 3.6 son las del Info
 | 3.11 Registro de auditoría inmutable e integración del modelo | 13 | OE4 | Completado: auditoría de solo adición con hashes encadenados e integración del modelo |
 | 3.12 Interfaz web por rol | 13–14 | OE4 | Completado: web por rol con módulos JavaScript (no Next.js) |
 | 3.13 Tablero de cobertura, brechas terapéuticas y tendencias | 14 | OE4 | Completado: cobertura, brechas y tendencias, con supresión de grupos pequeños |
-| 3.14 Aplicación móvil: consulta de solicitudes y alertas | 14 | OE5 | Primer corte en la semana 15 (una semana después de lo planificado): RF-61 a RF-65 construidos, sin push (RF-66); falta probarla en Android |
+| 3.14 Aplicación móvil: consulta de solicitudes y alertas | 14 | OE5 | Primer corte en la semana 15 (una semana después de lo planificado): RF-61 a RF-65 construidos y probados en teléfonos Android el 25-11-2026, sin push (RF-66) |
 | 4.1 Pruebas unitarias y de integración | 15 | OE5 | En curso: 212 pruebas automáticas |
 | 4.2 Pruebas de extremo a extremo y de rendimiento | 15 | OE5 | Parcial: un recorrido completo contra el sistema real; sin pruebas de rendimiento ni Playwright |
 | 4.3 Pruebas de seguridad: RBAC y completitud de la auditoría | 15 | OE5 | Parcial: pruebas de permisos por rol, alcance por centro y completitud de la auditoría |
-| 4.4 Plan de Pruebas con evidencias e Informe Final | 15 | OE5 | No iniciado |
-| 5.1 Corrección de defectos y retroalimentación | 16 | OE5 | No iniciado |
-| 5.2 Manual técnico y de despliegue; README final | 16 | OE5 | En curso: manual v1.0 escrito el 23-11 (docs/MANUAL_TECNICO.md); falta el README final al publicar el código |
-| 5.3 Preparación de la presentación y la demostración | 17 | Todos | No iniciado |
+| 4.4 Plan de Pruebas con evidencias e Informe Final | 15 | OE5 | Completado: Plan de Pruebas y evidencias v1.0 (adjunto D) e Informe Final; de 60 casos, 47 aprobados, 6 parciales y 7 no ejecutados |
+| 5.1 Corrección de defectos y retroalimentación | 16 | OE5 | En curso: quedan por cerrar los casos parciales y no ejecutados del plan de pruebas (entre ellos, cobertura y escaneo de seguridad) |
+| 5.2 Manual técnico y de despliegue; README final | 16 | OE5 | Completado: manual v1.0 (docs/MANUAL_TECNICO.md) y README, publicados con el código el 24-11-2026 |
+| 5.3 Preparación de la presentación y la demostración | 17 | Todos | En curso: presentación y guion preparados; falta ensayar con cronómetro |
 | 5.4 Presentación final ante comisión | 17–18 | Todos | No iniciado |
 
 ---
@@ -304,7 +304,7 @@ Todas públicas, gratuitas y des-identificadas:
 | [INPHARED](https://millardlab.org/bacteriophage-genomics/inphared/) | Genomas completos de fagos curados con metadatos de calidad | Cargada: tabla de metadatos de abril 2026 |
 | [PhageScope](https://academic.oup.com/nar/article/52/D1/D756/7334092) | Anotación de ciclo de vida, rango de hospedador y taxonomía | Pendiente |
 | [MVP](https://academic.oup.com/nar/article/46/D1/D700/4643372) | Interacciones fago–microbio curadas | Pendiente |
-| [Conjunto de datos PhageHostLearn](https://www.nature.com/articles/s41467-024-48675-6) | Interacciones verificadas en *K. pneumoniae* (entrenamiento y validación) | Pendiente |
+| [Conjunto de datos PhageHostLearn](https://www.nature.com/articles/s41467-024-48675-6) | Interacciones verificadas en *K. pneumoniae* (entrenamiento y validación) | Cargada: 105 fagos y 10.891 interacciones; entrena el modelo |
 | NCBI Virus / RefSeq viral | Secuencias virales de referencia | Pendiente |
 | BV-BRC | Genomas bacterianos y perfiles de resistencia | Pendiente |
 | NCBI (genomas) | 13 genomas bacterianos de referencia de especie, genomas de prueba y los 200 genomas de los fagos del banco | Descargada |
