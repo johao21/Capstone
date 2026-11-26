@@ -6,7 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ProveedorAlertas, useAlertas } from "./src/AlertasContexto";
-import { Cargando } from "./src/componentes/ui";
+import { Cargando, Icono } from "./src/componentes/ui";
 import { capacidades } from "./src/logica/estados";
 import Alertas from "./src/pantallas/Alertas";
 import Cuenta from "./src/pantallas/Cuenta";
@@ -24,7 +24,10 @@ const tema = {
   colors: { ...DefaultTheme.colors, primary: colores.primario, background: colores.fondo, card: colores.superficie, text: colores.texto, border: colores.borde },
 };
 
-const opcionesCabecera = { headerStyle: { backgroundColor: colores.superficie }, headerTitleStyle: { fontWeight: "800", color: colores.texto }, headerTintColor: colores.primario };
+// Barra de arriba en el verde de la marca, con texto blanco.
+const opcionesCabecera = { headerStyle: { backgroundColor: colores.primario }, headerTitleStyle: { fontWeight: "800", color: colores.primarioTexto }, headerTintColor: colores.primarioTexto };
+
+const icono = (nombre) => ({ color }) => <Icono nombre={nombre} tamano={26} color={color} />;
 
 function Principal() {
   const { usuario } = useSesion();
@@ -36,49 +39,56 @@ function Principal() {
         ...opcionesCabecera,
         tabBarActiveTintColor: colores.primario,
         tabBarInactiveTintColor: colores.textoSuave,
-        tabBarIconStyle: { display: "none" }, // sin íconos: la etiqueta basta y se lee mejor
-        tabBarLabelStyle: { fontSize: 15, fontWeight: "700" },
-        tabBarStyle: { minHeight: 56 },
+        tabBarLabelStyle: { fontSize: 13, fontWeight: "700" },
+        tabBarStyle: { minHeight: 64, paddingTop: 4 },
+        tabBarBadgeStyle: { backgroundColor: colores.error, color: colores.primarioTexto, fontWeight: "800" },
       }}
     >
-      {cap.verSolicitudes ? <Pestanas.Screen name="Solicitudes" component={Solicitudes} /> : null}
+      {cap.verSolicitudes ? <Pestanas.Screen name="Solicitudes" component={Solicitudes} options={{ tabBarIcon: icono("clipboard-list-outline") }} /> : null}
       {cap.recibirAlertas ? (
-        // Sin íconos, un badge no tendría dónde anclarse: el conteo de alertas sin leer va en la etiqueta.
+        // El conteo de alertas sin leer va como globo rojo sobre el ícono.
         <Pestanas.Screen
           name="Alertas"
           component={Alertas}
           options={{
-            tabBarLabel: noLeidas > 0 ? `Alertas (${noLeidas})` : "Alertas",
+            tabBarIcon: icono("bell-outline"),
+            tabBarBadge: noLeidas > 0 ? noLeidas : undefined,
             tabBarAccessibilityLabel: noLeidas > 0 ? `Alertas, ${noLeidas} sin leer` : "Alertas",
           }}
         />
       ) : null}
-      <Pestanas.Screen name="Cuenta" component={Cuenta} />
+      <Pestanas.Screen name="Cuenta" component={Cuenta} options={{ tabBarIcon: icono("account-circle-outline") }} />
     </Pestanas.Navigator>
   );
 }
 
 function Contenido() {
   const { fase, usuario } = useSesion();
-  if (fase === "arrancando") return <Cargando texto="Abriendo SIRFA…" />;
-  if (fase === "fuera") return <Ingreso />;
+  // Dentro, la barra de arriba es verde (íconos blancos); en el ingreso y al arrancar el fondo es claro (íconos oscuros).
+  const barra = <StatusBar style={fase === "dentro" ? "light" : "dark"} />;
+  if (fase === "arrancando") return <>{barra}<Cargando texto="Abriendo SIRFA…" /></>;
+  if (fase === "fuera") return <>{barra}<Ingreso /></>;
 
   const cap = capacidades(usuario);
   // Epidemiólogo: no tiene solicitudes ni alertas. Solo ve su cuenta, con el aviso de que su trabajo está en la web.
   if (!cap.verSolicitudes && !cap.recibirAlertas) {
     return (
-      <NavigationContainer theme={tema}>
-        <Pila.Navigator screenOptions={opcionesCabecera}>
-          <Pila.Screen name="Cuenta" options={{ title: "SIRFA" }}>
-            {() => <Cuenta sinAcceso />}
-          </Pila.Screen>
-        </Pila.Navigator>
-      </NavigationContainer>
+      <>
+        {barra}
+        <NavigationContainer theme={tema}>
+          <Pila.Navigator screenOptions={opcionesCabecera}>
+            <Pila.Screen name="Cuenta" options={{ title: "SIRFA" }}>
+              {() => <Cuenta sinAcceso />}
+            </Pila.Screen>
+          </Pila.Navigator>
+        </NavigationContainer>
+      </>
     );
   }
 
   return (
     <ProveedorAlertas habilitado={cap.recibirAlertas}>
+      {barra}
       <NavigationContainer theme={tema}>
         <Pila.Navigator screenOptions={opcionesCabecera}>
           <Pila.Screen name="Principal" component={Principal} options={{ headerShown: false }} />
@@ -92,7 +102,6 @@ function Contenido() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" />
       <ProveedorSesion>
         <Contenido />
       </ProveedorSesion>

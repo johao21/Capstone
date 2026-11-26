@@ -3,7 +3,7 @@ import { useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { Boton, Callout } from "../componentes/ui";
+import { Boton, Callout, Icono } from "../componentes/ui";
 import { useSesion } from "../Sesion";
 import { alturaTactil, colores, espacio, radio } from "../tema";
 
@@ -36,35 +36,43 @@ export default function Ingreso() {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={estilos.contenido} keyboardShouldPersistTaps="handled">
           <View style={estilos.cabecera}>
+            <View style={estilos.logo}>
+              <Icono nombre="virus-outline" tamano={52} color={colores.primarioTexto} />
+            </View>
             <Text style={estilos.marca} accessibilityRole="header">
               SIRFA
             </Text>
             <Text style={estilos.lema}>Sistema de Recomendación de Fagos frente a Antibiorresistencia</Text>
+            <Text style={estilos.bienvenida}>Consulta cómo van tus solicitudes y qué fagos se recomiendan.</Text>
           </View>
 
           {aviso ? <Callout tono="alerta" vivo>{aviso}</Callout> : null}
 
           <View style={estilos.formulario}>
             <Text style={estilos.etiqueta}>Correo</Text>
-            <TextInput
-              style={estilos.campo}
-              value={correo}
-              onChangeText={setCorreo}
-              placeholder="nombre@centro.cl"
-              placeholderTextColor={colores.textoSuave}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="email"
-              keyboardType="email-address"
-              textContentType="username"
-              returnKeyType="next"
-              accessibilityLabel="Correo"
-            />
+            <View style={estilos.campoConIcono}>
+              <Icono nombre="email-outline" tamano={22} color={colores.textoSuave} />
+              <TextInput
+                style={estilos.entrada}
+                value={correo}
+                onChangeText={setCorreo}
+                placeholder="nombre@centro.cl"
+                placeholderTextColor={colores.textoSuave}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                keyboardType="email-address"
+                textContentType="username"
+                returnKeyType="next"
+                accessibilityLabel="Correo"
+              />
+            </View>
 
             <Text style={estilos.etiqueta}>Contraseña</Text>
-            <View style={estilos.campoConBoton}>
+            <View style={estilos.campoConIcono}>
+              <Icono nombre="lock-outline" tamano={22} color={colores.textoSuave} />
               <TextInput
-                style={[estilos.campo, { flex: 1, borderWidth: 0 }]}
+                style={estilos.entrada}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!verPassword}
@@ -81,14 +89,17 @@ export default function Ingreso() {
                 accessibilityRole="button"
                 accessibilityLabel={verPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
                 style={estilos.ojo}
+                hitSlop={6}
               >
-                <Text style={estilos.ojoTexto}>{verPassword ? "Ocultar" : "Mostrar"}</Text>
+                <Icono nombre={verPassword ? "eye-off-outline" : "eye-outline"} tamano={24} color={colores.primario} />
               </Pressable>
             </View>
 
             {error ? <Callout tono="error" vivo>{error}</Callout> : null}
 
-            <Boton texto="Ingresar" onPress={enviar} cargando={enviando} deshabilitado={!puedeEnviar} />
+            <View style={{ marginTop: espacio.s }}>
+              <Boton texto="Ingresar" icono="login" onPress={enviar} cargando={enviando} deshabilitado={!puedeEnviar} />
+            </View>
           </View>
 
           <View style={estilos.servidor}>
@@ -99,6 +110,7 @@ export default function Ingreso() {
               accessibilityLabel="Servidor"
               style={estilos.servidorCabecera}
             >
+              <Icono nombre="server-network-outline" tamano={20} color={colores.textoSuave} />
               <Text style={estilos.servidorTitulo}>Servidor</Text>
               <Text style={estilos.servidorValor} numberOfLines={1}>
                 {editaServidor ? "Ocultar" : direccion}
@@ -107,7 +119,7 @@ export default function Ingreso() {
             {editaServidor ? (
               <View style={{ gap: espacio.s }}>
                 <TextInput
-                  style={estilos.campo}
+                  style={estilos.campoServidor}
                   value={direccion}
                   onChangeText={setDireccion}
                   autoCapitalize="none"
@@ -133,12 +145,27 @@ export default function Ingreso() {
 const estilos = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colores.fondo },
   contenido: { padding: espacio.xl, gap: espacio.xl, flexGrow: 1, justifyContent: "center", width: "100%", maxWidth: 480, alignSelf: "center" },
-  cabecera: { gap: espacio.xs },
-  marca: { fontSize: 40, fontWeight: "800", color: colores.primario, letterSpacing: 2 },
-  lema: { fontSize: 15, color: colores.textoSuave, lineHeight: 21 },
+  cabecera: { alignItems: "center", gap: espacio.s },
+  logo: { width: 96, height: 96, borderRadius: 28, backgroundColor: colores.primario, alignItems: "center", justifyContent: "center", marginBottom: espacio.s },
+  marca: { fontSize: 38, fontWeight: "800", color: colores.primarioOscuro, letterSpacing: 3 },
+  lema: { fontSize: 14, color: colores.textoSuave, lineHeight: 20, textAlign: "center" },
+  bienvenida: { fontSize: 16, color: colores.texto, lineHeight: 22, textAlign: "center", marginTop: espacio.s },
   formulario: { gap: espacio.s },
   etiqueta: { fontSize: 14, fontWeight: "700", color: colores.texto, marginTop: espacio.s },
-  campo: {
+  campoConIcono: {
+    minHeight: alturaTactil,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: espacio.s,
+    paddingLeft: espacio.m,
+    backgroundColor: colores.superficie,
+    borderColor: colores.borde,
+    borderWidth: 1,
+    borderRadius: radio,
+  },
+  entrada: { flex: 1, minHeight: alturaTactil, fontSize: 16, color: colores.texto },
+  ojo: { minHeight: alturaTactil, justifyContent: "center", paddingHorizontal: espacio.m },
+  campoServidor: {
     minHeight: alturaTactil,
     backgroundColor: colores.superficie,
     borderColor: colores.borde,
@@ -148,13 +175,10 @@ const estilos = StyleSheet.create({
     fontSize: 16,
     color: colores.texto,
   },
-  campoConBoton: { flexDirection: "row", alignItems: "center", backgroundColor: colores.superficie, borderColor: colores.borde, borderWidth: 1, borderRadius: radio },
-  ojo: { minHeight: alturaTactil, justifyContent: "center", paddingHorizontal: espacio.m },
-  ojoTexto: { color: colores.primario, fontWeight: "700", fontSize: 14 },
   servidor: { gap: espacio.s },
-  servidorCabecera: { minHeight: 44, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: espacio.m },
+  servidorCabecera: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: espacio.s },
   servidorTitulo: { fontSize: 14, fontWeight: "700", color: colores.textoSuave },
-  servidorValor: { flexShrink: 1, fontSize: 14, color: colores.primario, fontWeight: "600" },
+  servidorValor: { flex: 1, textAlign: "right", fontSize: 14, color: colores.primario, fontWeight: "600" },
   ayuda: { fontSize: 13, color: colores.textoSuave, lineHeight: 18 },
   pie: { fontSize: 13, color: colores.textoSuave, textAlign: "center" },
 });
