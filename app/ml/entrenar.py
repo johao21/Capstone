@@ -1,8 +1,11 @@
-"""Entrena y valida el modelo, guarda los artefactos y, si se pide, los registra en la base de datos (RF-31, RF-39, RF-40).
+"""Entrena y valida el modelo, guarda los artefactos y, si se pide, carga el banco de fagos en la base de datos (RF-31, RF-39, RF-40).
 
     python -m ml.entrenar                 # valida, entrena y escribe ml/models/
-    python -m ml.entrenar --registrar     # además carga los fagos e interacciones al banco y registra el modelo vigente
-    python -m ml.entrenar --registrar --sin-entrenar   # registra los artefactos que ya están en ml/models, sin volver a entrenar
+    python -m ml.entrenar --registrar     # además carga los fagos e interacciones conocidas al banco
+    python -m ml.entrenar --registrar --sin-entrenar   # solo carga el banco, sin volver a entrenar
+
+El modelo vigente son los artefactos de ml/models/ (no hay una tabla de modelos): `modelo.describir` arma su ficha y cada
+predicción guarda una copia de la que usó (RF-39).
 
 Es reproducible y fuera de línea: solo lee los archivos de `data/raw/phagehostlearn/` y fija las semillas (RF-40).
 """
@@ -10,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import platform
 import time
 from datetime import datetime, timezone
@@ -70,8 +72,11 @@ def entrenar(carpeta_datos: Path, salida: Path) -> tuple[datos.ConjuntoPHL, dict
     resultados = {"validacion_por_locus": por_locus, "validacion_por_cepa": por_cepa,
                   "datos": {"cepas": len(d.cepas), "fagos": len(d.fagos), "rbp": len(d.rbp_ids), "pares_ensayados": int(len(ensayados)),
                               "pares_positivos": int(ensayados.sum()), "filas_de_entrenamiento": n_filas}}
+    entrenado_en = datetime.now(timezone.utc)
     extra = {
-        "entrenado_en": datetime.now(timezone.utc).isoformat(),
+        "entrenado_en": entrenado_en.isoformat(),
+        "version": f"phl-xgb-{entrenado_en:%Y%m%d-%H%M}",
+        "algoritmo": modelo.ALGORITMO,
         "segundos": round(time.time() - inicio, 1),
         "fuente": {"nombre": FUENTE, "version": VERSION_FUENTE, "url": URL_FUENTE, "md5": _huella(carpeta_datos)},
         "parametros_xgboost": modelo.PARAMETROS_XGB,
@@ -85,20 +90,16 @@ def entrenar(carpeta_datos: Path, salida: Path) -> tuple[datos.ConjuntoPHL, dict
     return d, {**resultados, **extra}, n_filas
 
 
-def registrar(d: datos.ConjuntoPHL, info: dict, n_filas: int, carpeta_datos: Path) -> None:
-    """Carga los fagos y las interacciones del conjunto al banco (RF-31) y deja este modelo como el vigente."""
-    from sqlalchemy import select, update
+def registrar(d: datos.ConjuntoPHL, carpeta_datos: Path) -> None:
+    """Carga los fagos y las interacciones del conjunto al banco (RF-31). El modelo no se registra: son los artefactos de ml/models."""
+    from sqlalchemy import select
 
     from app.db import get_sessionmaker
-    from app.models import Fago, FagoOrigen, FuenteDatos, InteraccionConocida, ModeloPrediccion
+    from app.models import Fago, InteraccionConocida
 
     longitudes = datos.longitudes_de_genomas(carpeta_datos)
+    descargado_en = datetime.now(timezone.utc).isoformat()
     with get_sessionmaker()() as s:
-        fuente = s.scalar(select(FuenteDatos).where(FuenteDatos.nombre == FUENTE, FuenteDatos.version == VERSION_FUENTE))
-        if fuente is None:
-            fuente = FuenteDatos(nombre=FUENTE, version=VERSION_FUENTE, url=URL_FUENTE)
-            s.add(fuente)
-            s.flush()
         ids: dict[str, object] = {}
         nuevos = 0
         for nombre in d.matriz_fagos:
@@ -108,13 +109,14 @@ def registrar(d: datos.ConjuntoPHL, info: dict, n_filas: int, carpeta_datos: Pat
             fago = s.scalar(select(Fago).where(Fago.accesion == accesion))
             if fago is None:
                 fago = Fago(accesion=accesion, nombre=f"Klebsiella phage {nombre}", longitud_pb=longitudes[nombre],
-                            hospedador_declarado="Klebsiella pneumoniae")
+                            hospedador_declarado="Klebsiella pneumoniae",
+                            origenes=[{"fuente": FUENTE, "version": VERSION_FUENTE, "url": URL_FUENTE, "id_externo": nombre,
+                                       "descargado_en": descargado_en}])
                 s.add(fago)
                 s.flush()
-                s.add(FagoOrigen(fago_id=fago.id, fuente_id=fuente.id, id_externo=nombre, version_origen=VERSION_FUENTE))
                 nuevos += 1
             ids[nombre] = fago.id
-        ya = s.scalar(select(InteraccionConocida.id).where(InteraccionConocida.fuente_id == fuente.id).limit(1))
+        ya = s.scalar(select(InteraccionConocida.id).where(InteraccionConocida.fuente == FUENTE, InteraccionConocida.fuente_version == VERSION_FUENTE).limit(1))
         cargadas = 0
         if ya is None:
             for i, cepa in enumerate(d.matriz_cepas):
@@ -122,49 +124,28 @@ def registrar(d: datos.ConjuntoPHL, info: dict, n_filas: int, carpeta_datos: Pat
                     valor = d.matriz[i, j]
                     if nombre in ids and not np.isnan(valor):
                         s.add(InteraccionConocida(fago_id=ids[nombre], especie_hospedador="Klebsiella pneumoniae", cepa=cepa,
-                                                  resultado="infecta" if valor == 1 else "no_infecta", fuente_id=fuente.id,
-                                                  referencia=modelo.REFERENCIA))
+                                                  resultado="infecta" if valor == 1 else "no_infecta", fuente=FUENTE,
+                                                  fuente_version=VERSION_FUENTE, referencia=modelo.REFERENCIA))
                         cargadas += 1
-        base = f"phl-xgb-{datetime.now(timezone.utc):%Y%m%d}"
-        version, n = base, 1
-        while s.scalar(select(ModeloPrediccion.id).where(ModeloPrediccion.version == version)):
-            n += 1
-            version = f"{base}-{n}"
-        primaria = info["validacion_por_locus"]
-        s.execute(update(ModeloPrediccion).values(activo=False))
-        s.add(ModeloPrediccion(
-            version=version, algoritmo="XGBoost sobre embeddings ESM-2 (RBP del fago + locus K del hospedador) con explicación SHAP",
-            entrenado_en=datetime.fromisoformat(info["entrenado_en"]), n_entrenamiento=n_filas,
-            metricas={"top5": primaria["top5"], "top5_azar": primaria["top5_azar"], "auc": primaria["auc"], "sensibilidad": primaria["sensibilidad"],
-                      "especificidad": primaria["especificidad"], "esquema": primaria["esquema"],
-                      "linea_base_frecuencia_del_fago": primaria["linea_base_frecuencia_del_fago"],
-                      "validacion_por_cepa": {k: info["validacion_por_cepa"][k] for k in ("auc", "top5", "top5_azar", "sensibilidad", "especificidad", "linea_base_frecuencia_del_fago")},
-                      "datos": info["datos"]},
-            parametros={"xgboost": info["parametros_xgboost"], "umbral_similitud_locus": info["umbral_similitud_locus"],
-                        "umbral_candidato": round(float(modelo.aplicar_calibracion(info.get("calibracion"), info["validacion_por_cepa"]["umbral_sugerido"])), 4),
-                        "calibracion": info.get("calibracion"), "fuente": info["fuente"]["nombre"], "versiones": info["versiones"]},
-            ruta_artefacto=str(DIRECTORIO_MODELOS), activo=True))
         s.commit()
-    print(f"Registrado: modelo {version} | fagos nuevos en el banco: {nuevos} | interacciones cargadas: {cargadas}")
+    print(f"Banco cargado | fagos nuevos: {nuevos} | interacciones cargadas: {cargadas}")
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Entrena y valida el modelo de compatibilidad fago-hospedador")
     ap.add_argument("--datos", type=Path, default=datos.CARPETA_POR_DEFECTO, help="carpeta con el conjunto PhageHostLearn")
     ap.add_argument("--salida", type=Path, default=DIRECTORIO_MODELOS, help="carpeta de los artefactos del modelo")
-    ap.add_argument("--registrar", action="store_true", help="carga el banco y registra el modelo en la base de datos")
-    ap.add_argument("--sin-entrenar", action="store_true", help="usa los artefactos ya guardados en --salida (con --registrar)")
+    ap.add_argument("--registrar", action="store_true", help="carga los fagos y las interacciones conocidas en la base de datos")
+    ap.add_argument("--sin-entrenar", action="store_true", help="no entrena: solo carga el banco (con --registrar)")
     args = ap.parse_args(argv)
     if args.sin_entrenar:
         if not args.registrar:
             ap.error("--sin-entrenar solo tiene sentido con --registrar")
-        resultados = json.loads((args.salida / "metricas.json").read_text(encoding="utf-8"))
-        info = {**resultados, **json.loads((args.salida / "entrenamiento.json").read_text(encoding="utf-8"))}
-        registrar(datos.cargar(args.datos), info, resultados["datos"]["filas_de_entrenamiento"], args.datos)
+        registrar(datos.cargar(args.datos), args.datos)
         return 0
-    d, info, n_filas = entrenar(args.datos, args.salida)
+    d, _, _ = entrenar(args.datos, args.salida)
     if args.registrar:
-        registrar(d, info, n_filas, args.datos)
+        registrar(d, args.datos)
     return 0
 
 

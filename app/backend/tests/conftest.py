@@ -13,10 +13,13 @@ from app import seguridad
 from app.db import obtener_sesion
 from app.estados import cambiar_estado
 from app.main import app
-from app.models import Base, Centro, Fago, ModeloPrediccion, Prediccion, PrediccionFago, Solicitud, Usuario
+from app.models import Base, Centro, Fago, Prediccion, PrediccionFago, Solicitud, Usuario
 from app.routers import solicitudes as ruta_solicitudes
 
 CLAVE = "Clave-de-prueba-123"
+# Ficha del modelo que llevan las predicciones de prueba (en producción sale de ml/models; ver ml.modelo.describir).
+FICHA_PRUEBA = {"version": "prueba-1", "algoritmo": "XGBoost (prueba)", "entrenado_en": "2026-11-01T00:00:00+00:00",
+                "n_entrenamiento": 100, "metricas": {"top5": 0.9, "auc": 0.8}, "parametros": {}}
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -94,14 +97,8 @@ def prediccion_lista(engine):
     def fabricar(solicitud_id: str, n: int = 8, locus: str = "KL2") -> list[uuid.UUID]:
         with Session(engine) as s:
             sol = s.get(Solicitud, uuid.UUID(solicitud_id))
-            modelo = s.query(ModeloPrediccion).filter_by(version="prueba-1").first()
-            if modelo is None:
-                modelo = ModeloPrediccion(version="prueba-1", algoritmo="XGBoost (prueba)", n_entrenamiento=100,
-                                          metricas={"top5": 0.9, "auc": 0.8}, activo=True)
-                s.add(modelo)
-                s.flush()
             cambiar_estado(s, sol, "en_analisis")
-            pred = Prediccion(solicitud_id=sol.id, modelo_id=modelo.id, locus_k_tipo=locus)
+            pred = Prediccion(solicitud_id=sol.id, modelo_version=FICHA_PRUEBA["version"], modelo=FICHA_PRUEBA, locus_k_tipo=locus)
             s.add(pred)
             s.flush()
             ids = []

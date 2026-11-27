@@ -18,16 +18,13 @@ from .. import acceso, auditoria, recomendacion
 from ..config import get_settings
 from ..db import obtener_sesion
 from ..esquemas import ListaSolicitudes, MotivoIn, Recomendacion, SolicitudDetalle, SolicitudResumen
-from ..estados import TransicionInvalida, cambiar_estado
+from ..estados import TransicionInvalida, cambiar_estado, historial_de
 from ..models import (
     ESTADOS_SOLICITUD,
     MECANISMOS,
     TIPOS_MUESTRA,
     Aislado,
-    AnalisisGenomico,
-    Genoma,
     Solicitud,
-    SolicitudHistorial,
     Trabajo,
     Usuario,
 )
@@ -68,29 +65,19 @@ def _extension(nombre: str) -> str | None:
     return next((e for e in sorted(EXTENSIONES, key=len, reverse=True) if minusculas.endswith(e)), None)
 
 
-def _ultimos_analisis(session: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, AnalisisGenomico]:
-    """Último análisis de cada solicitud en una sola consulta (evita una consulta por fila del listado)."""
-    if not ids:
-        return {}
-    filas = session.execute(
-        select(AnalisisGenomico).where(AnalisisGenomico.solicitud_id.in_(ids)).order_by(AnalisisGenomico.creado_en)
-    ).scalars()
-    return {a.solicitud_id: a for a in filas}  # el último gana
-
-
-def _resumen(sol: Solicitud, aislado: Aislado, analisis: AnalisisGenomico | None) -> dict:
+def _resumen(sol: Solicitud, aislado: Aislado) -> dict:
     """Arma el diccionario de `SolicitudResumen`; sin análisis, los campos genómicos van en None."""
     return {
         "id": sol.id,
         "codigo_interno": aislado.codigo_interno,
         "estado": sol.estado,
-        "etapa": etapa_visible(sol.estado, analisis is not None),
+        "etapa": etapa_visible(sol.estado, sol.analizado_en is not None),
         "motivo_estado": sol.motivo_estado,
         "creada_en": sol.creada_en,
         "actualizada_en": sol.actualizada_en,
-        "especie_detectada": analisis.especie_detectada if analisis else None,
-        "locus_k_tipo": analisis.locus_k_tipo if analisis else None,
-        "locus_k_confianza": analisis.locus_k_confianza if analisis else None,
+        "especie_detectada": sol.especie_detectada,
+        "locus_k_tipo": sol.locus_k_tipo,
+        "locus_k_confianza": sol.locus_k_confianza,
     }
 
 
@@ -174,11 +161,11 @@ def crear(
                 solicitante_id=clinico_id,
             )
             origen = acceso.origen_de(request)
-            # Un evento por cada cosa que se registró (RF-48): el aislado, el genoma y la solicitud.
+            # Un evento por cada cosa que se registró (RF-48): el aislado, su genoma y la solicitud.
             auditoria.registrar(session, "aislado_registrado", usuario=tecnico, entidad="aislado", entidad_id=sol.aislado_id, origen=origen,
                                 detalle={"codigo_interno": codigo, "tipo_muestra": tipo_muestra})
-            auditoria.registrar(session, "genoma_cargado", usuario=tecnico, entidad="genoma", entidad_id=sol.genoma_id, origen=origen,
-                                detalle={"nombre_original": nombre_original, "sha256": session.get(Genoma, sol.genoma_id).sha256})
+            auditoria.registrar(session, "genoma_cargado", usuario=tecnico, entidad="aislado", entidad_id=sol.aislado_id, origen=origen,
+                                detalle={"nombre_original": nombre_original, "sha256": session.get(Aislado, sol.aislado_id).sha256})
             auditoria.registrar(session, "solicitud_creada", usuario=tecnico, entidad="solicitud", entidad_id=sol.id, origen=origen)
             session.commit()
         except IntegrityError:
@@ -186,7 +173,7 @@ def crear(
             session.rollback()
             raise HTTPException(409, f"Ya existe un aislado con el código '{codigo}' en este centro") from None
     aislado = session.get(Aislado, sol.aislado_id)
-    return _resumen(sol, aislado, None)
+    return _resumen(sol, aislado)
 
 
 @router.get("", response_model=ListaSolicitudes, summary="Listar solicitudes, las más recientes primero")
@@ -221,8 +208,7 @@ def listar(
         .limit(limite)
         .offset(desplazamiento)
     ).all()
-    analisis = _ultimos_analisis(session, [s.id for s, _ in filas])
-    return {"total": total, "items": [_resumen(s, a, analisis.get(s.id)) for s, a in filas]}
+    return {"total": total, "items": [_resumen(s, a) for s, a in filas]}
 
 
 @router.get("/{solicitud_id}", response_model=SolicitudDetalle, summary="Detalle de una solicitud")
@@ -231,18 +217,13 @@ def detalle(solicitud_id: uuid.UUID, usuario: Usuario = Depends(acceso.requiere(
     """Todo lo asociado a una solicitud: aislado, genoma, análisis, trabajos e historial de estados (RF-14)."""
     sol = acceso.solicitud_visible_o_404(session, usuario, solicitud_id)
     aislado = session.get(Aislado, sol.aislado_id)
-    genoma = session.get(Genoma, sol.genoma_id)
-    analisis = _ultimos_analisis(session, [sol.id]).get(sol.id)
     trabajos = session.execute(select(Trabajo).where(Trabajo.solicitud_id == sol.id).order_by(Trabajo.creado_en)).scalars().all()
-    historial = session.execute(
-        select(SolicitudHistorial).where(SolicitudHistorial.solicitud_id == sol.id).order_by(SolicitudHistorial.creado_en)
-    ).scalars().all()
 
-    salida = _resumen(sol, aislado, analisis)
+    salida = _resumen(sol, aislado)
     salida["aislado"] = aislado
-    salida["genoma"] = genoma
+    salida["genoma"] = aislado  # el genoma vive en las columnas del aislado: `GenomaOut` toma de ahí sus campos
     salida["trabajos"] = trabajos
-    salida["historial"] = historial
+    salida["historial"] = historial_de(session, sol)
     # Quién la registró, quién la pidió y quién la valida: nombres, no identificadores (los usuarios no se borran, siempre existen).
     def nombre(uid):
         return session.get(Usuario, uid).nombre if uid else None
@@ -250,20 +231,20 @@ def detalle(solicitud_id: uuid.UUID, usuario: Usuario = Depends(acceso.requiere(
     salida["registrada_por"] = nombre(sol.creada_por)
     salida["solicitante"] = nombre(sol.solicitante_id)
     salida["asignada_a"] = nombre(sol.asignada_a)
-    if analisis is not None:
-        # La verificación de especie no tiene columna propia: viaja en el JSON `parametros` del análisis.
-        parametros = analisis.parametros or {}
+    if sol.analizado_en is not None:
+        # La verificación de especie no tiene columna propia: viaja en el JSON `parametros_analisis`.
+        parametros = sol.parametros_analisis or {}
         salida["analisis"] = {
-            "especie_detectada": analisis.especie_detectada,
-            "distancia_especie": analisis.distancia_especie,
+            "especie_detectada": sol.especie_detectada,
+            "distancia_especie": sol.distancia_especie,
             "especie_verificada": parametros.get("especie_verificada"),
             "especie_referencia": parametros.get("especie_referencia"),
-            "locus_k_tipo": analisis.locus_k_tipo,
-            "locus_k_confianza": analisis.locus_k_confianza,
-            "n_genes": analisis.n_genes,
-            "n_proteinas": analisis.n_proteinas,
-            "versiones_herramientas": analisis.versiones_herramientas or {},
-            "creado_en": analisis.creado_en,
+            "locus_k_tipo": sol.locus_k_tipo,
+            "locus_k_confianza": sol.locus_k_confianza,
+            "n_genes": sol.n_genes,
+            "n_proteinas": sol.n_proteinas,
+            "versiones_herramientas": sol.versiones_herramientas or {},
+            "creado_en": sol.analizado_en,
         }
     return salida
 
@@ -284,7 +265,7 @@ def anular(solicitud_id: uuid.UUID, datos: MotivoIn | None = None, usuario: Usua
         .values(estado="fallido", error="solicitud anulada")
     )
     session.commit()
-    return _resumen(sol, session.get(Aislado, sol.aislado_id), _ultimos_analisis(session, [sol.id]).get(sol.id))
+    return _resumen(sol, session.get(Aislado, sol.aislado_id))
 
 
 @router.post("/{solicitud_id}/reintentar", response_model=SolicitudResumen, summary="Reintentar una solicitud con error")
@@ -303,11 +284,11 @@ def reintentar(solicitud_id: uuid.UUID, request: Request, usuario: Usuario = Dep
     if activo:
         raise HTTPException(409, "Ya hay un análisis en cola para esta solicitud")
     # Si el análisis genómico ya existe, el fallo fue de la predicción y solo se repite ese paso.
-    ya_analizada = _ultimos_analisis(session, [sol.id]).get(sol.id) is not None
+    ya_analizada = sol.analizado_en is not None
     session.add(Trabajo(tipo="prediccion" if ya_analizada else "pipeline", solicitud_id=sol.id))
     auditoria.registrar(session, "reintento_solicitud", usuario=usuario, entidad="solicitud", entidad_id=sol.id, origen=acceso.origen_de(request))
     session.commit()
-    return _resumen(sol, session.get(Aislado, sol.aislado_id), _ultimos_analisis(session, [sol.id]).get(sol.id))
+    return _resumen(sol, session.get(Aislado, sol.aislado_id))
 
 
 @router.get("/{solicitud_id}/recomendacion", response_model=Recomendacion, summary="Evidencia conocida para el aislado")
@@ -319,7 +300,6 @@ def obtener_recomendacion(solicitud_id: uuid.UUID, usuario: Usuario = Depends(ac
     `evidencia_disponible` y `sin_evidencia` (con el motivo en `mensaje`).
     """
     sol = acceso.solicitud_visible_o_404(session, usuario, solicitud_id)
-    analisis = _ultimos_analisis(session, [sol.id]).get(sol.id)
     base = {
         "solicitud_id": sol.id,
         "aviso": recomendacion.AVISO,
@@ -330,24 +310,24 @@ def obtener_recomendacion(solicitud_id: uuid.UUID, usuario: Usuario = Depends(ac
     # Casos que no llegan a buscar evidencia: solicitud muerta o análisis todavía sin terminar.
     if sol.estado in ("rechazada", "anulada"):
         return {**base, "estado": "no_aplica", "mensaje": f"La solicitud está {sol.estado}: no hay análisis que usar."}
-    if analisis is None:
+    if sol.analizado_en is None:
         return {**base, "estado": "analisis_pendiente", "mensaje": "El análisis genómico todavía no termina."}
 
     base["perfil"] = {
-        "especie_detectada": analisis.especie_detectada,
-        "locus_k_tipo": analisis.locus_k_tipo,
-        "locus_k_confianza": analisis.locus_k_confianza,
+        "especie_detectada": sol.especie_detectada,
+        "locus_k_tipo": sol.locus_k_tipo,
+        "locus_k_confianza": sol.locus_k_confianza,
     }
-    candidatos = recomendacion.candidatos_por_evidencia(session, analisis.locus_k_tipo)
+    candidatos = recomendacion.candidatos_por_evidencia(session, sol.locus_k_tipo)
     if candidatos:
         return {
             **base,
             "estado": "evidencia_disponible",
-            "mensaje": f"Fagos con interacciones positivas conocidas sobre aislados de locus {analisis.locus_k_tipo}.",
+            "mensaje": f"Fagos con interacciones positivas conocidas sobre aislados de locus {sol.locus_k_tipo}.",
             "candidatos": candidatos,
         }
     # Sin candidatos: se explica por qué, en orden de causa (sin locus, banco sin interacciones, locus sin positivas).
-    if not recomendacion.locus_tipificado(analisis.locus_k_tipo):
+    if not recomendacion.locus_tipificado(sol.locus_k_tipo):
         motivo = "El locus K del aislado no se pudo tipificar, así que no hay con qué buscar evidencia."
     elif base["banco"]["interacciones_conocidas"] == 0:
         motivo = (
@@ -355,5 +335,5 @@ def obtener_recomendacion(solicitud_id: uuid.UUID, usuario: Usuario = Depends(ac
             "sin esos datos SIRFA no puede decir cuáles son compatibles con este aislado."
         )
     else:
-        motivo = f"Ningún fago del banco tiene interacciones positivas registradas sobre el locus {analisis.locus_k_tipo}."
+        motivo = f"Ningún fago del banco tiene interacciones positivas registradas sobre el locus {sol.locus_k_tipo}."
     return {**base, "estado": "sin_evidencia", "mensaje": motivo}

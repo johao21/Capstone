@@ -5,7 +5,8 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
-from app.models import Base, Centro, SolicitudHistorial, Trabajo, Usuario
+from app.estados import historial_de
+from app.models import Base, Centro, Trabajo, Usuario
 from app.registro import crear_solicitud
 
 
@@ -46,6 +47,6 @@ def test_el_centro_y_usuario_de_demo_se_reutilizan(sesion, tmp_path):
 
 def test_la_solicitud_nace_registrada_con_su_primera_fila_de_historial(sesion, tmp_path):
     sol = crear_solicitud(sesion, fasta(tmp_path), "A", tmp_path / "g")
-    historial = sesion.execute(select(SolicitudHistorial)).scalar_one()
-    assert historial.solicitud_id == sol.id
-    assert historial.estado_anterior is None and historial.estado_nuevo == "registrada"
+    historial = historial_de(sesion, sol)  # la fila de creación sale de la propia solicitud
+    assert len(historial) == 1 and historial[0]["usuario_id"] == sol.creada_por
+    assert historial[0]["estado_anterior"] is None and historial[0]["estado_nuevo"] == "registrada"

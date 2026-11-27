@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .. import acceso, auditoria, recomendacion
 from ..db import obtener_sesion
 from ..esquemas import FagoOut, ListaFagos, Resumen
-from ..models import CICLOS_VIDA, ESTADOS_CURADURIA, Fago, FuenteDatos, InteraccionConocida, Solicitud, Usuario
+from ..models import CICLOS_VIDA, ESTADOS_CURADURIA, Fago, InteraccionConocida, Solicitud, Usuario
 from ..models import ahora
 
 router = APIRouter(prefix="/api/v1", tags=["Banco de fagos"])
@@ -99,17 +99,16 @@ def listar_fagos(
 @router.get("/fagos/{fago_id}", response_model=FagoDetalle, summary="Detalle de un fago y sus interacciones conocidas")
 def detalle_fago(fago_id: uuid.UUID, _: Usuario = Depends(acceso.requiere("MIC", "ADM")), session: Session = Depends(obtener_sesion)):
     fago = _fago(session, fago_id)
-    filas = session.execute(
-        select(InteraccionConocida, FuenteDatos.nombre)
-        .join(FuenteDatos, FuenteDatos.id == InteraccionConocida.fuente_id)
+    filas = session.scalars(
+        select(InteraccionConocida)
         .where(InteraccionConocida.fago_id == fago.id)
         .order_by(InteraccionConocida.locus_k_tipo, InteraccionConocida.cepa)
         .limit(500)
     ).all()
     interacciones = [
         {"cepa": i.cepa, "especie_hospedador": i.especie_hospedador, "locus_k_tipo": i.locus_k_tipo, "resultado": i.resultado,
-         "referencia": i.referencia, "fuente": fuente}
-        for i, fuente in filas
+         "referencia": i.referencia, "fuente": i.fuente}
+        for i in filas
     ]
     return {**{c: getattr(fago, c) for c in FagoOut.model_fields}, "interacciones": interacciones}
 

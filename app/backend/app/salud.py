@@ -1,7 +1,7 @@
 """Comprobación de estado de los servicios (RNF-19)."""
 from sqlalchemy import text
 
-from .db import get_engine, get_mongo
+from .db import get_engine
 
 
 def comprobar_postgres() -> str:
@@ -15,17 +15,7 @@ def comprobar_postgres() -> str:
         return f"falla: {type(exc).__name__}"
 
 
-def comprobar_mongo() -> str:
-    """`"ok"` si MongoDB responde al comando `ping`; si no, `"falla: <tipo de error>"`."""
-    try:
-        get_mongo().admin.command("ping")
-        return "ok"
-    except Exception as exc:  # noqa: BLE001
-        return f"falla: {type(exc).__name__}"
-
-
 def estado_general() -> dict:
-    """Resultado combinado: `ok` solo si ambas bases responden; si no, `degradado`."""
-    postgres, mongo = comprobar_postgres(), comprobar_mongo()
-    sano = postgres == "ok" and mongo == "ok"
-    return {"estado": "ok" if sano else "degradado", "postgres": postgres, "mongo": mongo}
+    """Resultado de la comprobación: `ok` si la base responde; si no, `degradado`."""
+    postgres = comprobar_postgres()
+    return {"estado": "ok" if postgres == "ok" else "degradado", "postgres": postgres}

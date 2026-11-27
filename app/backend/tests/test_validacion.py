@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Alerta, Auditoria, RecomendacionCandidato, RecomendacionEmitida
+from app.models import Alerta, Auditoria, RecomendacionEmitida
 
 FASTA = b">contig1\nACGTACGTACGTACGT\n>contig2\nTTGACCA\n"
 
@@ -231,5 +231,5 @@ def test_una_recomendacion_emitida_no_se_puede_modificar_por_la_api(como, predic
     for metodo in ("put", "patch", "delete"):
         assert getattr(como("mic"), metodo)(url(sol, "/recomendacion-emitida")).status_code in (404, 405)
     with Session(engine) as s:
-        assert len(s.scalars(select(RecomendacionEmitida)).all()) == 1
-        assert len(s.scalars(select(RecomendacionCandidato)).all()) == 5
+        emitida = s.scalars(select(RecomendacionEmitida)).one()
+        assert len(emitida.candidatos) == 5  # los candidatos viven dentro de la recomendación

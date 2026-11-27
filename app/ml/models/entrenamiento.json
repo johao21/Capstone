@@ -1,5 +1,7 @@
 {
   "entrenado_en": "2026-11-02T03:57:55.607859+00:00",
+  "version": "phl-xgb-20261102-3",
+  "algoritmo": "XGBoost sobre embeddings ESM-2 (RBP del fago + locus K del hospedador) con explicación SHAP",
   "segundos": 280.5,
   "fuente": {
     "nombre": "PhageHostLearn (Boeckaerts et al., 2024)",

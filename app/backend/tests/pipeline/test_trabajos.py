@@ -9,15 +9,12 @@ import pytest
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 
-from app.estados import TRANSICIONES, TransicionInvalida, cambiar_estado
+from app.estados import TRANSICIONES, TransicionInvalida, cambiar_estado, historial_de
 from app.models import (
-    AnalisisGenomico,
     Aislado,
     Base,
     Centro,
-    Genoma,
     Solicitud,
-    SolicitudHistorial,
     Trabajo,
     Usuario,
 )
@@ -72,15 +69,14 @@ def crear_solicitud(s: Session, tmp_path, contenido=">c1\n" + "ACGT" * 100 + "\n
         especie_declarada="Klebsiella pneumoniae",
         tipo_muestra="sangre",
         creado_por=usuario.id,
+        ruta_archivo=str(ruta),
+        sha256="b" * 64,
+        tamano_bytes=1,
+        nombre_original="g.fasta",
     )
     s.add(aislado)
     s.flush()
-    genoma = Genoma(aislado_id=aislado.id, ruta_archivo=str(ruta), sha256="b" * 64, tamano_bytes=1, nombre_original="g.fasta")
-    s.add(genoma)
-    s.flush()
-    sol = Solicitud(
-        aislado_id=aislado.id, genoma_id=genoma.id, centro_id=centro.id, solicitante_id=usuario.id, creada_por=usuario.id
-    )
+    sol = Solicitud(aislado_id=aislado.id, centro_id=centro.id, solicitante_id=usuario.id, creada_por=usuario.id)
     s.add(sol)
     s.flush()
     trabajo = Trabajo(tipo="pipeline", solicitud_id=sol.id)
@@ -90,8 +86,7 @@ def crear_solicitud(s: Session, tmp_path, contenido=">c1\n" + "ACGT" * 100 + "\n
 
 
 def pasos_falsos(especie="Klebsiella pneumoniae", falla_en=None):
-    """Herramientas falsas con resultados fijos. `falla_en` ("especie", "locus_k" o "genes") hace que ese paso lance ErrorHerramienta; lo que se "guarda" en Mongo queda en `pasos.guardados`."""
-    guardados: list[dict] = []
+    """Herramientas falsas con resultados fijos. `falla_en` ("especie", "locus_k" o "genes") hace que ese paso lance ErrorHerramienta."""
 
     def esp(ruta, declarada):
         if falla_en == "especie":
@@ -108,13 +103,7 @@ def pasos_falsos(especie="Klebsiella pneumoniae", falla_en=None):
             raise ErrorHerramienta("prodigal falló")
         return ResultadoGenes(n_genes=5100, n_proteinas=5100, ruta_proteinas="/x/proteinas.faa")
 
-    def guardar(doc):
-        guardados.append(doc)
-        return "64f000000000000000000001"
-
-    pasos = Pasos(especie=esp, locus_k=locus, genes=genes, guardar_crudo=guardar, versiones=lambda: {"prodigal": "2.6.3"})
-    pasos.guardados = guardados  # type: ignore[attr-defined]
-    return pasos
+    return Pasos(especie=esp, locus_k=locus, genes=genes, versiones=lambda: {"prodigal": "2.6.3"})
 
 
 # ------------------------------------------------------------------ estados
@@ -126,6 +115,15 @@ def test_transiciones_permitidas_y_prohibidas(sesion, tmp_path):
     assert sol.estado == "en_analisis"
 
 
+def test_una_solicitud_anterior_a_la_auditoria_cierra_su_historial_con_el_estado_actual(sesion, tmp_path):
+    sol, _ = crear_solicitud(sesion, tmp_path)
+    sol.estado, sol.motivo_estado = "rechazada", "calidad del genoma"  # cambió de estado sin dejar evento, como los datos de antes de la auditoría
+    sesion.commit()
+    filas = historial_de(sesion, sol)
+    assert [(f["estado_anterior"], f["estado_nuevo"]) for f in filas] == [(None, "registrada"), ("registrada", "rechazada")]
+    assert filas[-1]["motivo"] == "calidad del genoma" and filas[-1]["usuario_id"] is None
+
+
 def test_los_estados_finales_no_tienen_salida():
     for final in ("rechazada", "anulada", "cerrada"):
         assert TRANSICIONES[final] == set()
@@ -135,9 +133,11 @@ def test_cada_cambio_deja_historial(sesion, tmp_path):
     sol, _ = crear_solicitud(sesion, tmp_path)
     cambiar_estado(sesion, sol, "en_analisis")
     cambiar_estado(sesion, sol, "rechazada", motivo="prueba")
-    sesion.flush()
-    filas = sesion.execute(select(SolicitudHistorial).where(SolicitudHistorial.solicitud_id == sol.id)).scalars().all()
-    assert [(f.estado_anterior, f.estado_nuevo) for f in filas] == [("registrada", "en_analisis"), ("en_analisis", "rechazada")]
+    sesion.commit()  # el historial sale de la auditoría, cuyos eventos se insertan al confirmar
+    filas = historial_de(sesion, sol)
+    assert [(f["estado_anterior"], f["estado_nuevo"]) for f in filas] == [
+        (None, "registrada"), ("registrada", "en_analisis"), ("en_analisis", "rechazada")]
+    assert filas[-1]["motivo"] == "prueba"
 
 
 # --------------------------------------------------------------------- cola
@@ -170,15 +170,18 @@ def test_caso_feliz_guarda_analisis_y_encola_prediccion(sesion, tmp_path):
 
     assert trabajo.estado == "ok"
     assert sol.estado == "en_analisis"
-    analisis = sesion.execute(select(AnalisisGenomico)).scalar_one()
-    assert (analisis.especie_detectada, analisis.locus_k_tipo, analisis.n_genes) == ("Klebsiella pneumoniae", "KL2", 5100)
-    assert analisis.mongo_id == "64f000000000000000000001"
-    assert analisis.versiones_herramientas == {"prodigal": "2.6.3"}
+    # El análisis queda en las columnas de la propia solicitud, y el resultado completo en la columna JSONB `detalle_analisis`.
+    assert (sol.especie_detectada, sol.locus_k_tipo, sol.n_genes) == ("Klebsiella pneumoniae", "KL2", 5100)
+    assert sol.analizado_en is not None
+    assert sol.detalle_analisis["locus_k"] == {"tipo": "KL2", "confianza": "Good", "detalle": {"x": 1}}
+    assert sol.detalle_analisis["especie"]["detectada"] == "Klebsiella pneumoniae"
+    assert sol.detalle_analisis["genes"]["n"] == 5100
+    assert sol.detalle_analisis["herramientas"] == {"prodigal": "2.6.3"}
+    assert sol.versiones_herramientas == {"prodigal": "2.6.3"}
     siguiente = sesion.execute(select(Trabajo).where(Trabajo.tipo == "prediccion")).scalar_one()
     assert siguiente.solicitud_id == sol.id and siguiente.estado == "pendiente"
-    genoma = sesion.get(Genoma, sol.genoma_id)
-    assert genoma.qc_resultado in ("aprobado", "advertencia") and genoma.qc_longitud == 600
-    assert pasos.guardados[0]["locus_k"]["tipo"] == "KL2"
+    aislado = sesion.get(Aislado, sol.aislado_id)  # el genoma vive en las columnas del aislado
+    assert aislado.qc_resultado in ("aprobado", "advertencia") and aislado.qc_longitud == 600
 
 
 def test_calidad_rechazada_rechaza_la_solicitud(sesion, tmp_path):
@@ -189,7 +192,7 @@ def test_calidad_rechazada_rechaza_la_solicitud(sesion, tmp_path):
     assert sol.estado == "rechazada"
     assert "calidad" in sol.motivo_estado
     assert trabajo.estado == "ok"
-    assert sesion.execute(select(AnalisisGenomico)).first() is None
+    assert sol.analizado_en is None
 
 
 def test_especie_distinta_rechaza_la_solicitud(sesion, tmp_path):
@@ -247,7 +250,7 @@ def test_falla_de_herramienta_reintenta_y_al_tercer_intento_pasa_a_error(sesion,
 
     assert trabajo.estado == "fallido"
     assert sol.estado == "error"
-    assert sesion.execute(select(AnalisisGenomico)).first() is None
+    assert sol.analizado_en is None
 
 
 def test_solicitud_en_error_vuelve_a_en_analisis_al_reintentar(sesion, tmp_path):
@@ -263,13 +266,14 @@ def test_solicitud_en_error_vuelve_a_en_analisis_al_reintentar(sesion, tmp_path)
 def test_fallo_inesperado_deja_la_solicitud_en_error_para_poder_reintentar(sesion, tmp_path):
     sol, trabajo = crear_solicitud(sesion, tmp_path)
 
-    registrar_fallo_inesperado(sesion, trabajo.id, "error inesperado: mongo caído")
+    registrar_fallo_inesperado(sesion, trabajo.id, "error inesperado: base de datos caída")
 
     assert trabajo.estado == "fallido"
-    assert trabajo.error == "error inesperado: mongo caído"
+    assert trabajo.error == "error inesperado: base de datos caída"
     assert sol.estado == "error"  # desde `error` el botón "Reintentar" la acepta
-    historial = sesion.scalars(select(SolicitudHistorial).where(SolicitudHistorial.solicitud_id == sol.id)).all()
-    assert {(h.estado_anterior, h.estado_nuevo) for h in historial} == {("registrada", "en_analisis"), ("en_analisis", "error")}
+    sesion.commit()
+    assert [(h["estado_anterior"], h["estado_nuevo"]) for h in historial_de(sesion, sol)] == [
+        (None, "registrada"), ("registrada", "en_analisis"), ("en_analisis", "error")]
 
 
 def test_fallo_inesperado_no_cambia_una_solicitud_anulada(sesion, tmp_path):

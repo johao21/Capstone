@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     Cada campo se llena desde la variable de entorno del mismo nombre (en mayúsculas), o desde `.env`
     si existe; si no está definida se usa el valor por defecto de aquí. Los nombres de host por
-    defecto (`postgres`, `mongo`) son los nombres de servicio de docker-compose.yml.
+    defecto (`postgres`) es el nombre del servicio en docker-compose.yml.
     """
 
     # `extra="ignore"`: el .env trae variables que esta clase no declara (JWT_*, ESM_*, NEXT_PUBLIC_API_URL...);
@@ -24,12 +24,6 @@ class Settings(BaseSettings):
     postgres_db: str = "sirfa"
     postgres_user: str = "sirfa"
     postgres_password: str = "cambiar"
-
-    mongo_host: str = "mongo"
-    mongo_port: int = 27017
-    mongo_db: str = "sirfa_analysis"
-    mongo_user: str = "sirfa"
-    mongo_password: str = "cambiar"
 
     # Carpeta (volumen Docker) donde se guardan los FASTA subidos, con el SHA-256 como nombre.
     genomas_dir: str = "/data/genomas"
@@ -52,13 +46,6 @@ class Settings(BaseSettings):
         # quote_plus: si la clave trae caracteres como @ o /, romperían la URL sin escapar.
         usuario, clave = quote_plus(self.postgres_user), quote_plus(self.postgres_password)
         return f"postgresql+psycopg://{usuario}:{clave}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-
-    @property
-    def mongo_url(self) -> str:
-        """URL de conexión de PyMongo."""
-        usuario, clave = quote_plus(self.mongo_user), quote_plus(self.mongo_password)
-        # authSource=admin: el usuario raíz de la imagen mongo se crea en la base `admin`.
-        return f"mongodb://{usuario}:{clave}@{self.mongo_host}:{self.mongo_port}/?authSource=admin"
 
 
 @lru_cache

@@ -2,7 +2,7 @@
 
 Lo consume `worker-prediction` (`python -m pipeline.worker --tipos prediccion`). Parte de las proteínas que Prodigal dejó
 para la solicitud, le pide el ranking al modelo (`ml.modelo.Predictor`, inyectado como `predecir` para poder probar esto sin
-modelo), se queda con los fagos que un microbiólogo aprobó (RF-33) y guarda el ranking con la versión del modelo (RF-35).
+modelo), se queda con los fagos que un microbiólogo aprobó (RF-33) y guarda el ranking con la ficha del modelo que lo generó (RF-35).
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import auditoria
 from app.estados import cambiar_estado
-from app.models import AnalisisGenomico, Fago, ModeloPrediccion, Prediccion, PrediccionFago, Solicitud, Trabajo
+from app.models import Fago, Prediccion, PrediccionFago, Solicitud, Trabajo
 
 from .herramientas import ErrorHerramienta
 from .trabajos import _ahora, reintentar_o_fallar
@@ -27,17 +27,15 @@ class ErrorPrediccion(Exception):
 
 
 def _predecir(session: Session, trabajo: Trabajo, sol: Solicitud, predecir: Callable[[Path], dict], salida: Path) -> None:
-    modelo = session.scalars(select(ModeloPrediccion).where(ModeloPrediccion.activo.is_(True)).order_by(ModeloPrediccion.entrenado_en.desc())).first()
-    if modelo is None:
-        raise ErrorPrediccion("No hay un modelo entrenado y registrado: entrénalo con `python -m ml.entrenar --registrar` y reintenta")
-    analisis = session.scalars(select(AnalisisGenomico).where(AnalisisGenomico.solicitud_id == sol.id).order_by(AnalisisGenomico.creado_en.desc())).first()
-    if analisis is None:
+    if sol.analizado_en is None:
         raise ErrorPrediccion("La solicitud no tiene análisis genómico")
     proteinas = salida / str(sol.id) / "genes" / "proteinas.faa"
     if not proteinas.exists():
         raise ErrorPrediccion("No se encuentran las proteínas del aislado (genes/proteinas.faa): repite el análisis genómico")
 
+    # Si faltan los artefactos del modelo, `predecir` lo informa con ErrorPrediccion. El resultado trae la ficha del modelo que lo generó.
     resultado = predecir(proteinas)
+    modelo = resultado["modelo"]
 
     # Solo participan los fagos aprobados por un microbiólogo (RF-33) que el modelo conoce.
     aprobados = {f.accesion: f for f in session.scalars(
@@ -47,7 +45,7 @@ def _predecir(session: Session, trabajo: Trabajo, sol: Solicitud, predecir: Call
         raise ErrorPrediccion("No hay fagos aprobados con representación para el modelo: un microbiólogo debe aprobar fagos en el banco")
 
     pred = Prediccion(
-        solicitud_id=sol.id, modelo_id=modelo.id, locus_k_tipo=analisis.locus_k_tipo, baja_confianza=resultado["baja_confianza"],
+        solicitud_id=sol.id, modelo_version=modelo["version"], modelo=modelo, locus_k_tipo=sol.locus_k_tipo, baja_confianza=resultado["baja_confianza"],
         motivo_baja_confianza=resultado["motivo_baja_confianza"],
         detalle={"similitud_maxima": resultado["similitud_maxima"], "cepas_similares": resultado["cepas_similares"],
                  "fagos_en_el_modelo": len(resultado["ranking"]), "fagos_aprobados": len(ranking)},
@@ -59,7 +57,7 @@ def _predecir(session: Session, trabajo: Trabajo, sol: Solicitud, predecir: Call
         if r["evidencia"]:
             explicacion["evidencia"] = r["evidencia"]
         session.add(PrediccionFago(prediccion_id=pred.id, fago_id=fago.id, puntaje=round(r["puntaje"], 6), rango=rango, explicacion=explicacion))
-    auditoria.registrar(session, "prediccion_generada", entidad="solicitud", entidad_id=sol.id, modelo_version=modelo.version,
+    auditoria.registrar(session, "prediccion_generada", entidad="solicitud", entidad_id=sol.id, modelo_version=modelo["version"],
                         detalle={"fagos": len(ranking), "baja_confianza": resultado["baja_confianza"]})
     cambiar_estado(session, sol, "prediccion_lista")  # avisa a los microbiólogos (alertas.py)
     trabajo.estado, trabajo.error, trabajo.terminado_en = "ok", None, _ahora()

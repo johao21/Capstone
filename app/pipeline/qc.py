@@ -51,7 +51,7 @@ class ResultadoQC:
     motivos: list[str]
 
     def como_dict(self) -> dict:
-        """Versión serializable a JSON, para guardarla en MongoDB."""
+        """Versión serializable a JSON, para guardarla en la columna JSONB `analisis_genomico.detalle`."""
         return {"metricas": asdict(self.metricas), "resultado": self.resultado, "motivos": self.motivos}
 
 

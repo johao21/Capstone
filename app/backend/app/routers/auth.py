@@ -6,15 +6,20 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import acceso, auditoria, seguridad
 from ..config import get_settings
 from ..db import obtener_sesion
-from ..models import Centro, SesionRevocada, Usuario
+from ..models import Centro, Usuario
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Acceso"])
+
+
+def _vigentes(sesiones: list | None, ahora: datetime) -> list:
+    """Las sesiones revocadas cuyo último token todavía no vence; las demás ya no hacen falta y se descartan."""
+    return [s for s in (sesiones or []) if datetime.fromisoformat(s["expira_en"]) > ahora]
 
 
 class LoginIn(BaseModel):
@@ -107,8 +112,8 @@ def login(datos: LoginIn, request: Request, session: Session = Depends(obtener_s
 
     usuario.intentos_fallidos = 0
     usuario.bloqueado_hasta = None
-    # Aprovecha el inicio de sesión para limpiar las sesiones revocadas que ya vencieron.
-    session.execute(delete(SesionRevocada).where(SesionRevocada.expira_en < ahora))
+    # Aprovecha el inicio de sesión para limpiar, de la lista del usuario, las sesiones revocadas que ya vencieron.
+    usuario.sesiones_revocadas = _vigentes(usuario.sesiones_revocadas, ahora)
     token, vence, _ = seguridad.crear_token(usuario, ajustes, ahora=ahora)
     auditoria.registrar(session, "inicio_sesion", usuario=usuario, origen=acceso.origen_de(request))
     session.commit()
@@ -121,7 +126,12 @@ def logout(request: Request, usuario: Usuario = Depends(acceso.usuario_actual), 
     ajustes = get_settings()
     # Un token de esta sesión vive, como mucho, lo que dura uno nuevo a partir de ahora.
     vence = datetime.now(timezone.utc) + timedelta(minutes=ajustes.jwt_access_token_expire_minutes)
-    session.merge(SesionRevocada(sid=request.state.sid, expira_en=vence))
+    # Se bloquea la fila del usuario: dos cierres de sesión a la vez (p. ej. web y móvil) no se pisan la lista.
+    session.refresh(usuario, with_for_update=True)
+    revocadas = _vigentes(usuario.sesiones_revocadas, datetime.now(timezone.utc))
+    if all(s["sid"] != request.state.sid for s in revocadas):
+        revocadas.append({"sid": request.state.sid, "expira_en": vence.isoformat()})
+    usuario.sesiones_revocadas = revocadas
     auditoria.registrar(session, "cierre_sesion", usuario=usuario, origen=acceso.origen_de(request))
     session.commit()
 

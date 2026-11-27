@@ -91,8 +91,8 @@ Resultado observado en una corrida real (27-10-2026, por consola), unos 45 s de 
 - Calidad `aprobado`: 5.682.322 pb, 7 contigs, N50 5.333.942, GC 57,12 %.
 - Prodigal: 5.455 genes. Kaptive 3.3.2: locus K `KL103`, confianza `Typeable`.
 - Especie: en esa primera corrida todavía no había referencias, así que quedó **no verificada**.
-- Salidas crudas en MongoDB, análisis en PostgreSQL y un trabajo `prediccion` encolado (el motor de predicción es
-  de la etapa siguiente).
+- Análisis guardado en PostgreSQL (el resultado completo, en la columna JSONB `detalle`) y un trabajo `prediccion` encolado
+  (el motor de predicción es de la etapa siguiente).
 
 Caminos de rechazo: un archivo que no es FASTA de nucleótidos, o un genoma de otra especie, termina la solicitud en
 `rechazada` con el motivo.

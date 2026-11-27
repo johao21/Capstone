@@ -1,13 +1,12 @@
-"""Acceso a PostgreSQL y MongoDB.
+"""Acceso a PostgreSQL, la única base de datos del sistema.
 
-PostgreSQL guarda los datos estructurados (solicitudes, cola de trabajos, banco de fagos);
-MongoDB guarda el resultado crudo y voluminoso del análisis genómico. Todo se crea una sola vez
-por proceso (`lru_cache`) y se comparte entre peticiones.
+Guarda todo: los datos estructurados (solicitudes, cola de trabajos, banco de fagos, auditoría) y el resultado
+completo del análisis genómico, como JSONB en `solicitud.detalle_analisis`. El motor y las sesiones se crean una
+sola vez por proceso (`lru_cache`) y se comparten entre peticiones.
 """
 from collections.abc import Iterator
 from functools import lru_cache
 
-from pymongo import MongoClient
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -33,9 +32,3 @@ def obtener_sesion() -> Iterator[Session]:
     """Una sesión por petición de la API; se cierra al terminar."""
     with get_sessionmaker()() as session:
         yield session
-
-
-@lru_cache
-def get_mongo() -> MongoClient:
-    """Cliente de MongoDB. El timeout corto hace que /salud falle rápido si Mongo no responde."""
-    return MongoClient(get_settings().mongo_url, serverSelectionTimeoutMS=2000)

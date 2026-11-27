@@ -1,4 +1,4 @@
-# Bases de datos, API con la web, y los workers del pipeline genómico y de la predicción.
+# Base de datos (PostgreSQL), API con la web, y los workers del pipeline genómico y de la predicción.
 # Uso: cp .env.example .env && docker compose up --build
 
 name: sirfa-repo
@@ -22,7 +22,8 @@ x-backend: &backend
     - ./ml/models:/app/ml/models
 
 services:
-  # Base relacional: solicitudes, cola de trabajos y banco de fagos. No publica puertos: solo la ven los otros contenedores.
+  # Única base de datos: solicitudes, cola de trabajos, banco de fagos, auditoría y el detalle de cada análisis (JSONB).
+  # No publica puertos: solo la ven los otros contenedores.
   postgres:
     image: postgres:16
     environment:
@@ -38,22 +39,7 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Base de documentos: resultado crudo del análisis genómico. Tampoco publica puertos.
-  mongo:
-    image: mongo:7
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
-    volumes:
-      - mongodata:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-    restart: unless-stopped
-
-  # API (FastAPI) y web. No arranca hasta que PostgreSQL y MongoDB pasan su healthcheck.
+  # API (FastAPI) y web. No arranca hasta que PostgreSQL pasa su healthcheck.
   api:
     <<: *backend
     # Primero aplica las migraciones de la base de datos (Alembic) y luego arranca el servidor.
@@ -66,8 +52,6 @@ services:
       - "8000:8000"
     depends_on:
       postgres:
-        condition: service_healthy
-      mongo:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:8000/api/v1/salud"]
@@ -97,6 +81,5 @@ services:
 # Volúmenes con nombre: los datos sobreviven a `docker compose down` y solo se pierden con `docker compose down -v`.
 volumes:
   pgdata:
-  mongodata:
   genomas:
   analisis:

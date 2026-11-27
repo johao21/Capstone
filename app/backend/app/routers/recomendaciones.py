@@ -17,21 +17,16 @@ from sqlalchemy.orm import Session
 
 from .. import acceso, auditoria, recomendacion
 from ..db import obtener_sesion
-from ..estados import cambiar_estado
+from ..estados import cambiar_estado, historial_de
 from ..models import (
     RESULTADOS_ENSAYO,
     Aislado,
-    AnalisisGenomico,
     Auditoria,
     Fago,
-    Genoma,
-    ModeloPrediccion,
     Prediccion,
     PrediccionFago,
-    RecomendacionCandidato,
     RecomendacionEmitida,
     Solicitud,
-    SolicitudHistorial,
     Usuario,
 )
 
@@ -42,11 +37,13 @@ TOP_POR_DEFECTO = 5
 
 # ---------------------------------------------------------------- esquemas
 class ModeloOut(BaseModel):
+    """Ficha del modelo que generó la predicción, tal como estaba cuando se generó."""
+
     version: str
-    algoritmo: str
-    entrenado_en: datetime
+    algoritmo: str = ""
+    entrenado_en: datetime | None = None
     n_entrenamiento: int | None = None
-    metricas: dict
+    metricas: dict = {}
 
 
 class EvidenciaOut(BaseModel):
@@ -177,18 +174,14 @@ def _nombre(session: Session, usuario_id) -> str:
 def _armar_emitida(session: Session, rec: RecomendacionEmitida, solo_aceptados: bool) -> dict:
     sol = session.get(Solicitud, rec.solicitud_id)
     pred = session.get(Prediccion, rec.prediccion_id)
-    modelo = session.get(ModeloPrediccion, pred.modelo_id)
-    filas = session.execute(
-        select(RecomendacionCandidato, Fago)
-        .join(Fago, Fago.id == RecomendacionCandidato.fago_id)
-        .where(RecomendacionCandidato.recomendacion_id == rec.id)
-        .order_by(RecomendacionCandidato.rango)
-    ).all()
+    # Los candidatos viven dentro de la recomendación (JSON); de la tabla `fago` solo se toma el nombre y la accesión.
+    fagos = {f.id: f for f in session.scalars(select(Fago).where(Fago.id.in_([uuid.UUID(c["fago_id"]) for c in rec.candidatos])))}
     candidatos = [
-        {"fago_id": c.fago_id, "accesion": f.accesion, "nombre": f.nombre, "rango": c.rango, "puntaje": c.puntaje,
-         "descartado": c.descartado, "justificacion": c.justificacion, "resultado_ensayo": c.resultado_ensayo}
-        for c, f in filas
-        if not (solo_aceptados and c.descartado)
+        {"fago_id": c["fago_id"], "accesion": fagos[uuid.UUID(c["fago_id"])].accesion, "nombre": fagos[uuid.UUID(c["fago_id"])].nombre,
+         "rango": c["rango"], "puntaje": c["puntaje"], "descartado": c["descartado"], "justificacion": c.get("justificacion"),
+         "resultado_ensayo": c.get("resultado_ensayo", "no_ensayado")}
+        for c in sorted(rec.candidatos, key=lambda c: c["rango"])
+        if not (solo_aceptados and c["descartado"])
     ]
     versiones = session.scalars(
         select(RecomendacionEmitida).where(RecomendacionEmitida.solicitud_id == sol.id).order_by(RecomendacionEmitida.version.desc())
@@ -201,7 +194,7 @@ def _armar_emitida(session: Session, rec: RecomendacionEmitida, solo_aceptados: 
         "validador": _nombre(session, rec.validador_id),
         "observacion": rec.observacion,
         "advertencia": rec.advertencia,
-        "modelo_version": modelo.version,
+        "modelo_version": pred.modelo_version,
         "locus_k_tipo": pred.locus_k_tipo,
         "baja_confianza": pred.baja_confianza,
         "candidatos": candidatos,
@@ -229,14 +222,14 @@ def _crear_version(session: Session, sol: Solicitud, pred: Prediccion, mic: Usua
     rec = RecomendacionEmitida(
         solicitud_id=sol.id, version=version, prediccion_id=pred.id, validador_id=mic.id, observacion=datos.observacion,
         advertencia=recomendacion.AVISO,
+        candidatos=[
+            {"fago_id": str(r.fago_id), "rango": r.rango, "puntaje": r.puntaje, "descartado": r.fago_id in descartes,
+             "justificacion": descartes.get(r.fago_id), "resultado_ensayo": "no_ensayado"}
+            for r in sorted(incluidos, key=lambda x: x.rango)
+        ],
     )
     session.add(rec)
     session.flush()
-    for r in sorted(incluidos, key=lambda x: x.rango):
-        session.add(RecomendacionCandidato(
-            recomendacion_id=rec.id, fago_id=r.fago_id, rango=r.rango, puntaje=r.puntaje,
-            descartado=r.fago_id in descartes, justificacion=descartes.get(r.fago_id),
-        ))
     return rec
 
 
@@ -249,7 +242,7 @@ def obtener_prediccion(solicitud_id: uuid.UUID, limite: int = 30, usuario: Usuar
     pred = _prediccion_vigente(session, sol.id)
     if pred is None:
         raise HTTPException(404, "La solicitud todavía no tiene una predicción")
-    modelo = session.get(ModeloPrediccion, pred.modelo_id)
+    ficha = pred.modelo or {}
     limite = max(1, min(limite, 200))
     total = session.scalar(select(func.count()).select_from(PrediccionFago).where(PrediccionFago.prediccion_id == pred.id)) or 0
     filas = session.execute(
@@ -269,8 +262,8 @@ def obtener_prediccion(solicitud_id: uuid.UUID, limite: int = 30, usuario: Usuar
     return {
         "id": pred.id, "solicitud_id": sol.id, "generada_en": pred.generada_en, "locus_k_tipo": pred.locus_k_tipo,
         "baja_confianza": pred.baja_confianza, "motivo_baja_confianza": pred.motivo_baja_confianza,
-        "modelo": {"version": modelo.version, "algoritmo": modelo.algoritmo, "entrenado_en": modelo.entrenado_en,
-                   "n_entrenamiento": modelo.n_entrenamiento, "metricas": modelo.metricas or {}},
+        "modelo": {"version": pred.modelo_version, "algoritmo": ficha.get("algoritmo", ""), "entrenado_en": ficha.get("entrenado_en"),
+                   "n_entrenamiento": ficha.get("n_entrenamiento"), "metricas": ficha.get("metricas") or {}},
         "aviso": recomendacion.AVISO, "total_fagos": total, "detalle": pred.detalle or {}, "items": items,
     }
 
@@ -329,10 +322,9 @@ def aprobar(solicitud_id: uuid.UUID, datos: AprobacionIn, request: Request, mic:
     if pred is None:
         raise HTTPException(409, "La solicitud no tiene predicción que aprobar")
     rec = _crear_version(session, sol, pred, mic, datos, version=1)
-    modelo = session.get(ModeloPrediccion, pred.modelo_id)
     cambiar_estado(session, sol, "emitida", usuario_id=mic.id)
     auditoria.registrar(session, "recomendacion_emitida", usuario=mic, entidad="solicitud", entidad_id=sol.id, origen=acceso.origen_de(request),
-                        modelo_version=modelo.version, detalle={"version": 1, "descartes": len(datos.descartes), "top": datos.top})
+                        modelo_version=pred.modelo_version, detalle={"version": 1, "descartes": len(datos.descartes), "top": datos.top})
     session.commit()
     return _armar_emitida(session, rec, solo_aceptados=False)
 
@@ -383,9 +375,8 @@ def corregir(solicitud_id: uuid.UUID, datos: AprobacionIn, request: Request, mic
     pred = session.get(Prediccion, actual.prediccion_id)
     nueva = _crear_version(session, sol, pred, mic, datos, version=actual.version + 1)
     actual.estado = "reemplazada"
-    modelo = session.get(ModeloPrediccion, pred.modelo_id)
     auditoria.registrar(session, "recomendacion_corregida", usuario=mic, entidad="solicitud", entidad_id=sol.id, origen=acceso.origen_de(request),
-                        modelo_version=modelo.version, detalle={"version": nueva.version, "motivo": datos.observacion})
+                        modelo_version=pred.modelo_version, detalle={"version": nueva.version, "motivo": datos.observacion})
     session.commit()
     return _armar_emitida(session, nueva, solo_aceptados=False)
 
@@ -403,11 +394,15 @@ def registrar_ensayos(solicitud_id: uuid.UUID, datos: EnsayosIn, request: Reques
     rec = session.scalars(
         select(RecomendacionEmitida).where(RecomendacionEmitida.solicitud_id == sol.id, RecomendacionEmitida.estado == "vigente")
     ).first()
-    candidatos = {c.fago_id: c for c in session.scalars(select(RecomendacionCandidato).where(RecomendacionCandidato.recomendacion_id == rec.id))}
+    # Los candidatos son un JSON dentro de la recomendación: se copia la lista, se anota el resultado y se vuelve a asignar entera
+    # (así SQLAlchemy nota el cambio). La solicitud está bloqueada (`_bloquear`), de modo que nadie más la modifica a la vez.
+    candidatos = [dict(c) for c in rec.candidatos]
+    por_fago = {c["fago_id"]: c for c in candidatos}
+    if any(str(r.fago_id) not in por_fago for r in datos.resultados):
+        raise HTTPException(422, "Un fago del ensayo no es candidato de esta recomendación")
     for r in datos.resultados:
-        if r.fago_id not in candidatos:
-            raise HTTPException(422, "Un fago del ensayo no es candidato de esta recomendación")
-        candidatos[r.fago_id].resultado_ensayo = r.resultado
+        por_fago[str(r.fago_id)]["resultado_ensayo"] = r.resultado
+    rec.candidatos = candidatos
     auditoria.registrar(session, "ensayo_registrado", usuario=mic, entidad="solicitud", entidad_id=sol.id, origen=acceso.origen_de(request),
                         detalle={"resultados": {str(r.fago_id): r.resultado for r in datos.resultados}, "cerrada": datos.cerrar})
     if datos.cerrar:
@@ -421,12 +416,9 @@ def registrar_ensayos(solicitud_id: uuid.UUID, datos: EnsayosIn, request: Reques
 def reconstruir(solicitud_id: uuid.UUID, admin: Usuario = Depends(acceso.requiere("ADM")), session: Session = Depends(obtener_sesion)):
     sol = acceso.solicitud_visible_o_404(session, admin, solicitud_id)
     aislado = session.get(Aislado, sol.aislado_id)
-    genoma = session.get(Genoma, sol.genoma_id)
-    analisis = session.scalars(select(AnalisisGenomico).where(AnalisisGenomico.solicitud_id == sol.id).order_by(AnalisisGenomico.creado_en.desc())).first()
     pred = _prediccion_vigente(session, sol.id)
-    modelo = session.get(ModeloPrediccion, pred.modelo_id) if pred else None
+    ficha = (pred.modelo or {}) if pred else {}
     versiones = session.scalars(select(RecomendacionEmitida).where(RecomendacionEmitida.solicitud_id == sol.id).order_by(RecomendacionEmitida.version)).all()
-    historial = session.scalars(select(SolicitudHistorial).where(SolicitudHistorial.solicitud_id == sol.id).order_by(SolicitudHistorial.creado_en)).all()
     eventos = session.scalars(
         select(Auditoria).where(Auditoria.entidad == "solicitud", Auditoria.entidad_id == str(sol.id)).order_by(Auditoria.seq)
     ).all()
@@ -436,16 +428,16 @@ def reconstruir(solicitud_id: uuid.UUID, admin: Usuario = Depends(acceso.requier
         "solicitada_por": {"tecnico": _nombre(session, sol.creada_por), "clinico": _nombre(session, sol.solicitante_id), "centro_id": sol.centro_id},
         "datos": {
             "aislado": aislado.codigo_interno, "fecha_aislamiento": aislado.fecha_aislamiento, "especie_declarada": aislado.especie_declarada,
-            "genoma_sha256": genoma.sha256, "qc": genoma.qc_resultado,
-            "especie_detectada": analisis.especie_detectada if analisis else None,
-            "locus_k": analisis.locus_k_tipo if analisis else None,
-            "herramientas": analisis.versiones_herramientas if analisis else None,
+            "genoma_sha256": aislado.sha256, "qc": aislado.qc_resultado,
+            "especie_detectada": sol.especie_detectada,
+            "locus_k": sol.locus_k_tipo,
+            "herramientas": sol.versiones_herramientas if sol.analizado_en else None,
         },
-        "modelo": {"version": modelo.version, "algoritmo": modelo.algoritmo, "entrenado_en": modelo.entrenado_en,
-                   "metricas": modelo.metricas, "prediccion_generada_en": pred.generada_en} if modelo else None,
+        "modelo": {"version": pred.modelo_version, "algoritmo": ficha.get("algoritmo"), "entrenado_en": ficha.get("entrenado_en"),
+                   "metricas": ficha.get("metricas"), "prediccion_generada_en": pred.generada_en} if pred else None,
         "recomendaciones": [{"version": v.version, "estado": v.estado, "validada_por": _nombre(session, v.validador_id),
                              "emitida_en": v.emitida_en} for v in versiones],
-        "historial_estados": [{"de": h.estado_anterior, "a": h.estado_nuevo, "por": _nombre(session, h.usuario_id) if h.usuario_id else "sistema",
-                               "motivo": h.motivo, "en": h.creado_en} for h in historial],
+        "historial_estados": [{"de": h["estado_anterior"], "a": h["estado_nuevo"], "por": _nombre(session, h["usuario_id"]) if h["usuario_id"] else "sistema",
+                               "motivo": h["motivo"], "en": h["creado_en"]} for h in historial_de(session, sol)],
         "eventos_auditoria": [{"seq": e.seq, "ts": e.ts, "accion": e.accion, "usuario": e.correo, "resultado": e.resultado} for e in eventos],
     }

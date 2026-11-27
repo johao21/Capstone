@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AnalisisGenomico, Fago, FuenteDatos, InteraccionConocida, Solicitud, Trabajo
+from app.models import Fago, InteraccionConocida, Solicitud, Trabajo
 from app.routers import solicitudes as ruta_solicitudes
 
 # FASTA mínimo y válido: dos contigs de ADN.
@@ -22,21 +22,20 @@ def subir(cliente, codigo="A-001", contenido=FASTA, nombre="mi genoma.fasta", **
 
 
 def agregar_analisis(engine, solicitud_id, locus="KL52", confianza="Typeable"):
-    """Inserta un análisis genómico ya hecho, para probar la API sin ejecutar el pipeline."""
+    """Deja un análisis genómico ya hecho en la solicitud, para probar la API sin ejecutar el pipeline."""
+    from datetime import datetime, timezone
+
     with Session(engine) as s:
-        s.add(
-            AnalisisGenomico(
-                solicitud_id=uuid.UUID(solicitud_id),
-                especie_detectada="Klebsiella pneumoniae",
-                distancia_especie=0.01,
-                locus_k_tipo=locus,
-                locus_k_confianza=confianza,
-                n_genes=5455,
-                n_proteinas=5455,
-                versiones_herramientas={"prodigal": "2.6.3"},
-                parametros={"especie_verificada": True, "especie_referencia": "GCF_000240185.1"},
-            )
-        )
+        sol = s.get(Solicitud, uuid.UUID(solicitud_id))
+        sol.especie_detectada = "Klebsiella pneumoniae"
+        sol.distancia_especie = 0.01
+        sol.locus_k_tipo = locus
+        sol.locus_k_confianza = confianza
+        sol.n_genes = 5455
+        sol.n_proteinas = 5455
+        sol.versiones_herramientas = {"prodigal": "2.6.3"}
+        sol.parametros_analisis = {"especie_verificada": True, "especie_referencia": "GCF_000240185.1"}
+        sol.analizado_en = datetime.now(timezone.utc)
         s.commit()
 
 
@@ -208,13 +207,10 @@ def test_recomendacion_ordena_por_tasa_positiva_y_excluye_lo_sin_evidencia_posit
     malo = agregar_fago(engine, accesion="NC_C", nombre="Klebsiella phage C")
     descartado = agregar_fago(engine, accesion="NC_D", nombre="Klebsiella phage D", estado_curaduria="descartado")
     with Session(engine) as s:
-        fuente = FuenteDatos(nombre="prueba", version="1")
-        s.add(fuente)
-        s.flush()
 
         def inter(fago, resultado, locus="KL52", cepa="c"):
             s.add(InteraccionConocida(fago_id=fago, especie_hospedador="Klebsiella pneumoniae", cepa=cepa, locus_k_tipo=locus,
-                                      resultado=resultado, fuente_id=fuente.id, referencia="ref-1"))
+                                      resultado=resultado, fuente="prueba", fuente_version="1", referencia="ref-1"))
 
         inter(bueno, "infecta", cepa="c1")
         inter(bueno, "infecta", cepa="c2")

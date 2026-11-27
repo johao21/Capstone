@@ -111,3 +111,13 @@ def test_la_calibracion_acerca_la_probabilidad_a_la_frecuencia_observada(conjunt
     calibrado = modelo.aplicar_calibracion(cal, np.array([0.2, 0.5, 0.9]))
     assert list(calibrado) == sorted(calibrado)  # no cambia el orden del ranking
     assert list(modelo.aplicar_calibracion(None, np.array([0.2, 0.9]))) == [0.2, 0.9]  # sin calibración, igual
+
+
+def test_la_ficha_del_modelo_sale_de_sus_archivos(predictor, tmp_path):
+    """RF-39: versión, algoritmo y métricas se leen de ml/models; cada predicción guarda una copia (ver pipeline/prediccion.py)."""
+    assert predictor.ficha["version"] == "sintetico"
+    assert modelo.leer_ficha(predictor.directorio)["version"] == "sintetico"
+    assert modelo.leer_ficha(tmp_path / "no_hay_modelo") is None
+    # Un modelo guardado antes de que `entrenamiento.json` trajera `version` recibe una derivada de su fecha de entrenamiento.
+    ficha = modelo.describir({}, {"entrenado_en": "2026-11-02T03:57:55.607859+00:00"})
+    assert ficha["version"] == "phl-xgb-20261102-0357" and ficha["algoritmo"] == modelo.ALGORITMO

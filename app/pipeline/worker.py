@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from app.config import get_settings
-from app.db import get_mongo, get_sessionmaker
+from app.db import get_sessionmaker
 
 from .especie import identificar_especie, rutas_referencias
 from .genes import predecir_genes
@@ -30,17 +30,12 @@ TIPOS = ("pipeline", "prediccion")
 
 def construir_pasos() -> Pasos:
     """Conecta el pipeline con las herramientas reales (en las pruebas se usan versiones falsas)."""
-    ajustes = get_settings()
     sketch, mapa = rutas_referencias()
     if not (sketch.exists() and mapa.exists()):
         log.warning(
             "sin referencias de especie en %s: la especie NO se verificará. Ejecute: python -m pipeline.referencias construir",
             sketch.parent,
         )
-
-    def guardar_crudo(documento: dict) -> str:
-        """Inserta el resultado completo en MongoDB y devuelve el id del documento."""
-        return str(get_mongo()[ajustes.mongo_db]["analisis_genomico"].insert_one(documento).inserted_id)
 
     def versiones() -> dict:
         """Versión de cada herramienta, para dejar constancia de con qué se hizo el análisis."""
@@ -55,7 +50,6 @@ def construir_pasos() -> Pasos:
         especie=lambda ruta, declarada: identificar_especie(ruta, declarada, sketch, mapa),
         locus_k=tipificar_locus_k,
         genes=predecir_genes,
-        guardar_crudo=guardar_crudo,
         versiones=versiones,
     )
 

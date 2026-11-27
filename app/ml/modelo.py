@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -195,6 +196,53 @@ def aplicar_calibracion(calibracion: dict | None, puntaje):
 
 
 # ----------------------------------------------------------------------------- artefactos
+ALGORITMO = "XGBoost sobre embeddings ESM-2 (RBP del fago + locus K del hospedador) con explicación SHAP"
+
+
+def describir(metricas: dict, entrenamiento: dict) -> dict:
+    """Ficha del modelo (RF-39): versión, algoritmo, fecha de entrenamiento, tamaño de los datos, métricas y parámetros.
+
+    Sale de `metricas.json` y `entrenamiento.json`, los dos archivos que escribe `guardar`. Cada predicción guarda una copia de esta
+    ficha, de modo que se sabe con qué modelo se hizo aunque después se entrene otra versión. Los modelos guardados antes de que
+    `entrenamiento.json` trajera `version` reciben una derivada de su fecha de entrenamiento."""
+    primaria = metricas.get("validacion_por_locus") or {}
+    por_cepa = metricas.get("validacion_por_cepa") or {}
+    entrenado_en = entrenamiento.get("entrenado_en") or datetime.now(timezone.utc).isoformat()
+    calibracion = entrenamiento.get("calibracion")
+    umbral = por_cepa.get("umbral_sugerido")
+    return {
+        "version": entrenamiento.get("version") or f"phl-xgb-{datetime.fromisoformat(entrenado_en):%Y%m%d-%H%M}",
+        "algoritmo": entrenamiento.get("algoritmo") or ALGORITMO,
+        "entrenado_en": entrenado_en,
+        "n_entrenamiento": (metricas.get("datos") or {}).get("filas_de_entrenamiento"),
+        # Métricas con el esquema de validación más exigente (aislado de un tipo K no visto) y, aparte, la validación por cepa.
+        "metricas": {
+            **{k: primaria.get(k) for k in ("top5", "top5_azar", "auc", "sensibilidad", "especificidad", "esquema", "linea_base_frecuencia_del_fago")},
+            "validacion_por_cepa": {k: por_cepa.get(k) for k in ("auc", "top5", "top5_azar", "sensibilidad", "especificidad", "linea_base_frecuencia_del_fago")},
+            "datos": metricas.get("datos"),
+        },
+        "parametros": {
+            "xgboost": entrenamiento.get("parametros_xgboost"),
+            "umbral_similitud_locus": entrenamiento.get("umbral_similitud_locus"),
+            "umbral_candidato": round(float(aplicar_calibracion(calibracion, umbral)), 4) if umbral is not None else None,
+            "calibracion": calibracion,
+            "fuente": (entrenamiento.get("fuente") or {}).get("nombre"),
+            "versiones": entrenamiento.get("versiones"),
+        },
+    }
+
+
+def leer_ficha(directorio: Path | str) -> dict | None:
+    """Ficha del modelo guardado en `directorio`, o None si todavía no hay un modelo entrenado."""
+    carpeta = Path(directorio)
+    try:
+        metricas = json.loads((carpeta / "metricas.json").read_text(encoding="utf-8"))
+        entrenamiento = json.loads((carpeta / "entrenamiento.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    return describir(metricas, entrenamiento)
+
+
 def guardar(directorio: Path, d: ConjuntoPHL, modelo, resultados: dict, extra: dict) -> None:
     """Escribe el modelo y todo lo necesario para predecir sin volver a leer el conjunto original."""
     directorio.mkdir(parents=True, exist_ok=True)
@@ -249,6 +297,7 @@ class Predictor:
         self.metricas = json.loads((self.directorio / "metricas.json").read_text(encoding="utf-8"))
         self.entrenamiento = json.loads((self.directorio / "entrenamiento.json").read_text(encoding="utf-8"))
         self.calibracion = self.entrenamiento.get("calibracion")
+        self.ficha = describir(self.metricas, self.entrenamiento)
         self._explicador = None
 
     # -- hospedador
@@ -345,6 +394,7 @@ class Predictor:
             r["evidencia"] = self._evidencia(v, r["j"])
         baja = v.mejor < UMBRAL_SIMILITUD
         return {
+            "modelo": self.ficha,
             "baja_confianza": baja,
             "motivo_baja_confianza": (
                 f"El locus K del aislado se parece como máximo un {v.mejor:.0%} al de las cepas de entrenamiento (se pide ≥ {UMBRAL_SIMILITUD:.0%}): "

@@ -38,7 +38,7 @@ app = FastAPI(
 
 @app.get("/api/v1/salud", tags=["Sistema"])
 def obtener_salud(respuesta: Response) -> dict:
-    """Estado de PostgreSQL y MongoDB; responde 503 si alguno falla."""
+    """Estado de PostgreSQL; responde 503 si falla."""
     estado = salud.estado_general()
     if estado["estado"] != "ok":
         # El 503 es lo que lee el healthcheck de Docker Compose para marcar el contenedor como no sano.

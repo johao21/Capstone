@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app import auditoria
 from app.main import app
-from app.models import Auditoria, Fago, ModeloPrediccion, Usuario
+from app.models import Auditoria, Fago, Usuario
+from app.routers import modelo as ruta_modelo
 
 from conftest import CLAVE
 
@@ -228,27 +229,26 @@ def test_aprobar_en_lote_y_toda_curaduria_queda_en_la_auditoria(como, engine):
 
 
 def test_el_detalle_del_fago_trae_sus_interacciones_conocidas(como, engine):
-    from app.models import FuenteDatos, InteraccionConocida
+    from app.models import InteraccionConocida
     f1, *_ = _fagos(engine)
     with Session(engine) as s:
-        fuente = FuenteDatos(nombre="prueba", version="1")
-        s.add(fuente)
-        s.flush()
         s.add(InteraccionConocida(fago_id=f1, especie_hospedador="Klebsiella pneumoniae", cepa="K1", locus_k_tipo="KL2", resultado="infecta",
-                                  fuente_id=fuente.id, referencia="ref"))
+                                  fuente="prueba", fuente_version="1", referencia="ref"))
         s.commit()
     d = como("mic").get(f"/api/v1/fagos/{f1}").json()
     assert d["interacciones"][0]["locus_k_tipo"] == "KL2" and d["interacciones"][0]["fuente"] == "prueba"
 
 
 # ------------------------------------------------------------------ modelo
-def test_el_modelo_vigente_muestra_version_fecha_y_metricas(como, engine):
+def test_el_modelo_vigente_muestra_version_fecha_y_metricas(como, monkeypatch):
+    # El modelo vigente son los archivos de ml/models: aquí se simula que `leer_ficha` no los encuentra y luego que sí.
     mic = como("mic")
+    monkeypatch.setattr(ruta_modelo, "leer_ficha", lambda carpeta: None)
     sin = mic.get("/api/v1/modelo").json()
     assert sin["disponible"] is False and "Todavía no hay un modelo" in sin["mensaje"]
-    with Session(engine) as s:
-        s.add(ModeloPrediccion(version="v1", algoritmo="XGBoost", n_entrenamiento=500, metricas={"top5": 0.8, "auc": 0.77}, activo=True))
-        s.commit()
+    monkeypatch.setattr(ruta_modelo, "leer_ficha", lambda carpeta: {
+        "version": "v1", "algoritmo": "XGBoost", "entrenado_en": "2026-11-01T00:00:00+00:00", "n_entrenamiento": 500,
+        "metricas": {"top5": 0.8, "auc": 0.77}, "parametros": {}})
     con = como("adm").get("/api/v1/modelo").json()
     assert con["disponible"] is True and con["version"] == "v1" and con["metricas"]["auc"] == 0.77 and con["entrenado_en"]
     assert como("tec").get("/api/v1/modelo").status_code == 403

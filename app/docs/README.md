@@ -17,8 +17,8 @@
 
 Las imágenes de `arquitectura/`, `modelo-datos/` y `uml/` salen del Documento de Diseño v0.3 (línea base de la etapa 2). **Muestran el diseño, no siempre lo construido.** Las diferencias que conviene tener presentes:
 
-- El diseño prevé la web en **Next.js** (`:3000`) y **seis contenedores**; se construyó una web de HTML y JavaScript sin compilar que sirve la propia API, y son **cinco contenedores** (`postgres`, `mongo`, `api`, `worker-pipeline` y `worker-prediction`).
-- Los diagramas entidad-relación cubren 16 de las **24 tablas** diseñadas; en PostgreSQL se implementaron **20** y en MongoDB, **1 de las 4** colecciones.
+- El diseño prevé la web en **Next.js** (`:3000`) y **cinco contenedores** (web, API, dos workers y PostgreSQL); se construyó una web de HTML y JavaScript sin compilar que sirve la propia API, y son **cuatro contenedores** (`postgres`, `api`, `worker-pipeline` y `worker-prediction`).
+- Los diagramas entidad-relación cubren 16 de las **24 tablas** diseñadas; el esquema construido tiene **12** (solicitud de cambio SC-07, iniciada el 12-11-2026, el mismo día que SC-06). Las tablas de detalle pasaron a columnas o a JSON de la tabla a la que pertenecen: el genoma está en `aislado`; el análisis genómico y su detalle JSONB, en `solicitud`; el origen de cada fago, en `fago.origenes`; la ficha del modelo, en `prediccion.modelo`; los candidatos emitidos, en `recomendacion_emitida.candidatos`; las sesiones cerradas, en `usuario.sesiones_revocadas`; y el historial de estados se lee de la auditoría. Además hay una sola base de datos (SC-06).
 - El diseño usa embeddings ESM-2 calculados por el sistema; se usan los precalculados del conjunto PhageHostLearn.
 - La app móvil (React Native con Expo) se conecta a la API por HTTP en la red local; el diseño supone HTTPS, que aún no está configurado.
 

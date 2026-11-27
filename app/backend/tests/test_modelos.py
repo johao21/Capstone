@@ -6,30 +6,22 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Aislado, Base, Centro, Fago, Genoma, Solicitud, Usuario
+from app.models import Aislado, Base, Centro, Fago, Solicitud, Usuario
 
+# Las 12 tablas del esquema (solicitud de cambio SC-07): el genoma está en `aislado`, el análisis en `solicitud`, etc.
 TABLAS_ESPERADAS = {
     "centro",
     "usuario",
     "aislado",
-    "genoma",
     "solicitud",
-    "solicitud_historial",
     "trabajo",
-    "analisis_genomico",
-    "fuente_datos",
     "fago",
-    "fago_origen",
     "interaccion_conocida",
-    # Migración 0002: sesiones, auditoría, alertas, predicción y recomendaciones emitidas.
-    "sesion_revocada",
     "auditoria",
     "alerta",
-    "modelo_prediccion",
     "prediccion",
     "prediccion_fago",
     "recomendacion_emitida",
-    "recomendacion_candidato",
 }
 
 
@@ -49,7 +41,7 @@ def sesion():
 
 
 def crear_base(s: Session):
-    """Crea lo mínimo que necesita una solicitud: centro, usuario, aislado y genoma. Devuelve (centro, usuario, aislado, genoma)."""
+    """Crea lo mínimo que necesita una solicitud: centro, usuario y aislado (con su genoma). Devuelve (centro, usuario, aislado)."""
     centro = Centro(codigo="C1", nombre="Centro de prueba")
     s.add(centro)
     s.flush()
@@ -63,13 +55,14 @@ def crear_base(s: Session):
         especie_declarada="Klebsiella pneumoniae",
         tipo_muestra="sangre",
         creado_por=usuario.id,
+        ruta_archivo="/data/g.fasta",
+        sha256="a" * 64,
+        tamano_bytes=10,
+        nombre_original="g.fasta",
     )
     s.add(aislado)
     s.flush()
-    genoma = Genoma(aislado_id=aislado.id, ruta_archivo="/data/g.fasta", sha256="a" * 64, tamano_bytes=10, nombre_original="g.fasta")
-    s.add(genoma)
-    s.flush()
-    return centro, usuario, aislado, genoma
+    return centro, usuario, aislado
 
 
 def test_se_crean_todas_las_tablas():
@@ -77,22 +70,27 @@ def test_se_crean_todas_las_tablas():
 
 
 def test_solicitud_nace_registrada(sesion):
-    centro, usuario, aislado, genoma = crear_base(sesion)
-    sol = Solicitud(
-        aislado_id=aislado.id, genoma_id=genoma.id, centro_id=centro.id, solicitante_id=usuario.id, creada_por=usuario.id
-    )
+    centro, usuario, aislado = crear_base(sesion)
+    sol = Solicitud(aislado_id=aislado.id, centro_id=centro.id, solicitante_id=usuario.id, creada_por=usuario.id)
     sesion.add(sol)
     sesion.flush()
-    assert sol.estado == "registrada"
+    assert sol.estado == "registrada" and sol.analizado_en is None  # sin análisis hasta que el pipeline termina
+
+
+def test_resultado_de_calidad_invalido_se_rechaza(sesion):
+    """El veredicto del QC (columna del aislado) solo admite los valores de RESULTADOS_QC."""
+    _, _, aislado = crear_base(sesion)
+    aislado.qc_resultado = "dudoso"
+    with pytest.raises(IntegrityError):
+        sesion.flush()
 
 
 def test_estado_invalido_se_rechaza(sesion):
     """La restricción CHECK de la base impide guardar un estado que no esté en ESTADOS_SOLICITUD."""
-    centro, usuario, aislado, genoma = crear_base(sesion)
+    centro, usuario, aislado = crear_base(sesion)
     sesion.add(
         Solicitud(
             aislado_id=aislado.id,
-            genoma_id=genoma.id,
             centro_id=centro.id,
             solicitante_id=usuario.id,
             creada_por=usuario.id,
@@ -114,7 +112,7 @@ def test_rol_invalido_se_rechaza(sesion):
 
 def test_codigo_interno_unico_por_centro(sesion):
     """El mismo código en el mismo centro viola la restricción única (la API lo informa como error 409)."""
-    centro, usuario, _, _ = crear_base(sesion)
+    centro, usuario, _ = crear_base(sesion)
     sesion.add(
         Aislado(
             codigo_interno="A-001",

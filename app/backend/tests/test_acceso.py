@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app import seguridad
 from app.config import get_settings
 from app.main import app
-from app.models import Auditoria, SesionRevocada, Solicitud, Usuario
+from app.models import Auditoria, Solicitud, Usuario
 
 from conftest import CLAVE
 
@@ -108,14 +108,31 @@ def test_un_token_sin_firma_no_se_acepta(base_api, cuentas):
     assert TestClient(app).get("/api/v1/auth/yo", headers={"Authorization": f"Bearer {sin_firma}"}).status_code == 401
 
 
-def test_cerrar_sesion_invalida_el_token_aunque_no_haya_vencido(como, engine):
+def test_cerrar_sesion_invalida_el_token_aunque_no_haya_vencido(como, engine, cuentas):
     c = como("tec")
     assert c.get("/api/v1/auth/yo").status_code == 200
     assert c.post("/api/v1/auth/logout").status_code == 204
     r = c.get("/api/v1/auth/yo")
     assert r.status_code == 401 and "cerró" in r.json()["detail"]
+    with Session(engine) as s:  # la sesión cerrada queda en la propia fila del usuario
+        assert len(s.get(Usuario, cuentas["tec"]["id"]).sesiones_revocadas) == 1
+
+
+def test_cerrar_una_sesion_no_cierra_las_otras_del_mismo_usuario(como):
+    web, movil = como("tec"), como("tec")  # dos inicios de sesión de la misma cuenta
+    assert web.post("/api/v1/auth/logout").status_code == 204
+    assert web.get("/api/v1/auth/yo").status_code == 401
+    assert movil.get("/api/v1/auth/yo").status_code == 200
+
+
+def test_las_sesiones_revocadas_ya_vencidas_se_descartan_al_iniciar_sesion(como, engine, cuentas):
+    vencida = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     with Session(engine) as s:
-        assert s.scalar(select(SesionRevocada.sid)) is not None
+        s.get(Usuario, cuentas["tec"]["id"]).sesiones_revocadas = [{"sid": "vieja", "expira_en": vencida}]
+        s.commit()
+    como("tec")  # inicia sesión
+    with Session(engine) as s:
+        assert s.get(Usuario, cuentas["tec"]["id"]).sesiones_revocadas == []
 
 
 def test_el_token_se_renueva_solo_cuando_le_queda_poca_vida(como, base_api, cuentas, engine):

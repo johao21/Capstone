@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from . import auditoria, seguridad
 from .config import get_settings
 from .db import obtener_sesion
-from .models import SesionRevocada, Solicitud, Usuario
+from .models import Solicitud, Usuario
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -75,12 +75,13 @@ def usuario_actual(
         raise _no_autenticado("La sesión expiró: inicia sesión de nuevo") from None
     except jwt.PyJWTError:
         raise _no_autenticado("Token no válido") from None
-    if session.get(SesionRevocada, datos["sid"]) is not None:
-        raise _no_autenticado("La sesión se cerró: inicia sesión de nuevo")
     try:
         usuario = session.get(Usuario, uuid.UUID(datos["sub"]))
     except ValueError:
         raise _no_autenticado("Token no válido") from None
+    # Las sesiones cerradas con "Cerrar sesión" están en la propia fila del usuario (`sesiones_revocadas`): no hace falta otra consulta.
+    if usuario is not None and any(s.get("sid") == datos["sid"] for s in usuario.sesiones_revocadas or []):
+        raise _no_autenticado("La sesión se cerró: inicia sesión de nuevo")
     if usuario is None or not usuario.activo:
         raise _no_autenticado("La cuenta no está activa")
     request.state.sid = datos["sid"]

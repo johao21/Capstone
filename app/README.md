@@ -56,7 +56,7 @@ Todo el ciclo queda trazado con **control de acceso por rol** y **registro de au
 | Web | Construida | HTML, CSS y módulos JavaScript sin compilar, servidos por la API, con pantallas por rol; no es la web con Next.js del diseño |
 | Tablero | Construido | Cobertura del banco, brechas terapéuticas y tendencias, con supresión de grupos pequeños y exportación a CSV |
 | App móvil | Construida, sin push | Hecha desde cero en la semana 15 (React Native con Expo): ingreso, lista de solicitudes, detalle con la recomendación emitida en solo lectura y bandeja de alertas. Verificada primero en el navegador y **probada a mano en teléfonos Android con Expo Go el 25-11-2026**, contra la API real: ingreso, lista y filtros, detalle con la recomendación, alertas, cierre de sesión y vista por rol. Sin notificaciones push (RF-66). Ver [mobile/README.md](mobile/README.md) |
-| Pruebas | 212 pasan + 38 de la app móvil | pytest dentro del contenedor: 211 con SQLite en memoria y una de concurrencia contra PostgreSQL real (se activa con `SIRFA_TEST_POSTGRES_DB`); además, un recorrido completo contra el sistema real. La app móvil tiene 38 pruebas de su lógica y de lo que dibuja (`npm test` en `mobile/`); su interfaz no tiene pruebas automáticas. La integración continua (`.github/workflows/ci.yml`) corre `pytest` y `npm test` en cada push; se verificó en local con una instalación limpia y corrió por primera vez en GitHub el 24-11-2026, donde terminó sin errores (no mide cobertura) |
+| Pruebas | 217 pasan + 38 de la app móvil | pytest dentro del contenedor: 216 con SQLite en memoria y una de concurrencia contra PostgreSQL real (se activa con `SIRFA_TEST_POSTGRES_DB`); además, un recorrido completo contra el sistema real. La app móvil tiene 38 pruebas de su lógica y de lo que dibuja (`npm test` en `mobile/`); su interfaz no tiene pruebas automáticas. La integración continua (`.github/workflows/ci.yml`) corre `pytest` y `npm test` en cada push; se verificó en local con una instalación limpia y corrió por primera vez en GitHub el 24-11-2026, donde terminó sin errores (no mide cobertura) |
 
 Las cuentas son de demostración: el sistema no opera con pacientes ni datos identificables.
 
@@ -80,7 +80,7 @@ Con un tipo K no visto el modelo no supera a la línea base; con uno representad
 | Backend y API | Python 3.12 · FastAPI · SQLAlchemy 2 · Alembic · Pydantic · PyJWT · argon2-cffi | — |
 | Bioinformática | Prodigal · Mash · Kaptive · Biopython · BLAST+ (parecido del locus K) | DIAMOND, minimap2 (instalado, sin uso) |
 | Aprendizaje automático | XGBoost · SHAP · scikit-learn · NumPy · embeddings ESM-2 del conjunto PhageHostLearn | Calcular ESM-2 para fagos y aislados nuevos |
-| Bases de datos | PostgreSQL 16 (dominio, cola de trabajos y auditoría) · MongoDB 7 (salidas crudas del análisis) | Caché de representaciones vectoriales |
+| Bases de datos | PostgreSQL 16 (dominio, cola de trabajos, auditoría y detalle de los análisis en JSONB) | Caché de representaciones vectoriales |
 | Frontend | HTML · CSS · JavaScript (módulos ES, sin compilar) | Next.js · Recharts |
 | Aplicación móvil | React Native · Expo (SDK 58) · React Navigation · expo-secure-store | Notificaciones push (RF-66) |
 | Seguridad | JWT HS256 · Argon2id · permisos por rol en el servidor · auditoría con hashes encadenados y disparador de solo adición | HTTPS (fuera del entorno local), GitHub Actions |
@@ -94,7 +94,7 @@ Con un tipo K no visto el modelo no supera a la línea base; con uno representad
 
 ```
                                                   ┌─► Mash · Kaptive · Prodigal
-  Navegador ──► API (FastAPI, :8000) ──► PostgreSQL ◄── worker-pipeline ──► MongoDB (salidas crudas)
+  Navegador ──► API (FastAPI, :8000) ──► PostgreSQL ◄── worker-pipeline ──► detalle del análisis (JSONB)
   App móvil ──►  │  JWT · roles · auditoría   │  (dominio, cola, auditoría)
   (Expo, HTTP)   │                            └◄── worker-prediction ──► BLAST + XGBoost + SHAP (ml/models)
                 └─ sirve la web y /api/v1
@@ -121,14 +121,19 @@ Con un tipo K no visto el modelo no supera a la línea base; con uno representad
         │ QC · tipificación│   │ ESM-2 + XGBoost  │   │ cobertura·brechas│
         └─────────┬────────┘   └─────────┬────────┘   └─────────┬────────┘
                   └──────────────────────┼──────────────────────┘
-                             ┌───────────┴───────────┐
-                    ┌────────▼────────┐    ┌─────────▼────────┐
-                    │   PostgreSQL    │    │     MongoDB      │
-                    │ dominio + audit │    │ análisis · caché │
-                    └─────────────────┘    └──────────────────┘
+                                         │
+                        ┌────────────────▼────────────────┐
+                        │           PostgreSQL            │
+                        │   dominio + audit + análisis    │
+                        └─────────────────────────────────┘
 
   Ingesta externa (batch): INPHARED · PhageScope · MVP · NCBI Virus ──► banco de fagos
 ```
+
+**Cambios de plan (iniciados el 12-11-2026):**
+
+- **SC-06, una sola base de datos.** El Documento de Diseño y la SRS describen una sola. PostgreSQL guarda también el detalle de cada análisis genómico, en una columna JSONB.
+- **SC-07, esquema de 12 tablas.** El diseño preveía 24 tablas y se habían construido 20; el esquema se simplificó a **12**: `centro`, `usuario`, `aislado`, `solicitud`, `trabajo`, `fago`, `interaccion_conocida`, `prediccion`, `prediccion_fago`, `recomendacion_emitida`, `auditoria` y `alerta`. Las ocho tablas de detalle pasaron a columnas o a JSON de la tabla a la que pertenecen: el genoma, en `aislado`; el análisis genómico y su detalle (JSONB), en `solicitud`; el origen de cada fago, en `fago.origenes`; la ficha del modelo, en `prediccion.modelo`; los candidatos emitidos, en `recomendacion_emitida.candidatos`; las sesiones cerradas, en `usuario.sesiones_revocadas`. El historial de estados se lee de la auditoría. La migración `0004` copia los datos existentes y se puede deshacer (`alembic downgrade 0003`).
 
 Los diagramas detallados (componentes, casos de uso, clases, secuencia) y el modelo entidad-relación están en el Documento de Diseño del curso.
 
@@ -145,7 +150,7 @@ app/
 ├── mobile/             app móvil (React Native con Expo): App.js, src/ y tests/; ver mobile/README.md
 ├── data/               genomas, referencias y conjunto PhageHostLearn; no se versiona
 ├── docs/               manual técnico y de despliegue, guías de demostración y diagramas del diseño (ver docs/README.md)
-├── docker-compose.yml  5 servicios: postgres, mongo, api, worker-pipeline y worker-prediction
+├── docker-compose.yml  4 servicios: postgres, api, worker-pipeline y worker-prediction
 ├── pytest.ini          configuración de las pruebas
 └── .env.example        variables de entorno, sin secretos
 ```
@@ -176,9 +181,9 @@ Servicios expuestos:
 |---|---|
 | Aplicación web | http://localhost:8000/ |
 | API (documentación OpenAPI) | http://localhost:8000/docs |
-| Estado de las bases | http://localhost:8000/api/v1/salud |
+| Estado de la base de datos | http://localhost:8000/api/v1/salud |
 
-PostgreSQL y MongoDB no publican puertos: solo los usan los otros contenedores.
+PostgreSQL no publica puertos: solo lo usan los otros contenedores.
 
 ### Poblar el banco de fagos y las referencias de especie
 
@@ -205,7 +210,7 @@ mkdir -p data/raw/phagehostlearn   # descargar allí los 7 archivos del registro
 docker compose run --rm worker-prediction python -m ml.entrenar --registrar
 ```
 
-Tarda unos 15 minutos (validación cruzada) y deja el modelo en `ml/models/`. Con `--sin-entrenar` solo registra los artefactos ya guardados. Después, el microbiólogo aprueba los fagos en «Banco de fagos» (hay «Aprobar todos los pendientes de la búsqueda»): sin fagos aprobados la predicción termina en error con ese motivo.
+Tarda unos 15 minutos (validación cruzada) y deja el modelo en `ml/models/`. Con `--sin-entrenar` no entrena: solo carga el banco de fagos y sus interacciones. El modelo vigente son los archivos de `ml/models/` (no hay una tabla de modelos). Después, el microbiólogo aprueba los fagos en «Banco de fagos» (hay «Aprobar todos los pendientes de la búsqueda»): sin fagos aprobados la predicción termina en error con ese motivo.
 
 ### Usarlo
 
@@ -236,7 +241,7 @@ Se elige porque los requisitos del sistema pueden especificarse por completo des
 | Etapa | Semanas | Entregable | Puerta de control |
 |---|---|---|---|
 | 1. Análisis | 5–6 | Especificación de Requisitos de Software (SRS) | SRS aprobada; cambios posteriores pasan por control de cambios |
-| 2. Diseño | 6–7 | Documento de Diseño: arquitectura, modelo ER, esquema documental, UML y plan de pruebas | Línea base de diseño congelada |
+| 2. Diseño | 6–7 | Documento de Diseño: arquitectura, modelo ER, UML y plan de pruebas | Línea base de diseño congelada |
 | 3. Construcción | 8–14 | Sistema integrado en Docker: pipeline y banco de fagos, modelo predictivo, plataforma web y app móvil | Componentes integrados sin pasos manuales no documentados |
 | 4. Pruebas | 15 | Plan de Pruebas con evidencias (unitarias, integración, E2E, rendimiento y seguridad) | Defectos críticos corregidos o documentados |
 | 5. Despliegue y cierre | 16–18 | Manual técnico y de despliegue, README final, presentación ante comisión | Sistema desplegable y documentado |
@@ -251,7 +256,7 @@ El estado es el del 02-11-2026 (semana 13), salvo las filas 3.14 y 4.4 a 5.3, qu
 | 1.2 Levantamiento de requisitos y definición de roles y permisos | 5–6 | OE1 | Completado, con retraso |
 | 1.3 SRS: requisitos funcionales, no funcionales e historias por rol | 5–6 | OE1 | Completado, con retraso |
 | 2.1 Arquitectura y diagrama de componentes | 6 | OE1 | Completado, con retraso |
-| 2.2 Modelo de datos: ER de PostgreSQL y esquema documental de MongoDB | 6–7 | OE1 | Completado, con retraso |
+| 2.2 Modelo de datos: ER de PostgreSQL (con columnas JSONB) | 6–7 | OE1 | Completado, con retraso |
 | 2.3 Diagramas UML: casos de uso, clases y secuencia | 7 | OE1 | Completado, con retraso |
 | 2.4 Documento de Diseño y plan de pruebas | 7 | OE1 | Completado, con retraso |
 | 3.1 Descarga y normalización de genomas de fagos (INPHARED, PhageScope) | 8 | OE2 | En curso: tabla de metadatos y 200 genomas; faltan PhageScope y MVP |
@@ -268,7 +273,7 @@ El estado es el del 02-11-2026 (semana 13), salvo las filas 3.14 y 4.4 a 5.3, qu
 | 3.12 Interfaz web por rol | 13–14 | OE4 | Completado: web por rol con módulos JavaScript (no Next.js) |
 | 3.13 Tablero de cobertura, brechas terapéuticas y tendencias | 14 | OE4 | Completado: cobertura, brechas y tendencias, con supresión de grupos pequeños |
 | 3.14 Aplicación móvil: consulta de solicitudes y alertas | 14 | OE5 | Primer corte en la semana 15 (una semana después de lo planificado): RF-61 a RF-65 construidos y probados en teléfonos Android el 25-11-2026, sin push (RF-66) |
-| 4.1 Pruebas unitarias y de integración | 15 | OE5 | En curso: 212 pruebas automáticas |
+| 4.1 Pruebas unitarias y de integración | 15 | OE5 | En curso: 217 pruebas automáticas |
 | 4.2 Pruebas de extremo a extremo y de rendimiento | 15 | OE5 | Parcial: un recorrido completo contra el sistema real; sin pruebas de rendimiento ni Playwright |
 | 4.3 Pruebas de seguridad: RBAC y completitud de la auditoría | 15 | OE5 | Parcial: pruebas de permisos por rol, alcance por centro y completitud de la auditoría |
 | 4.4 Plan de Pruebas con evidencias e Informe Final | 15 | OE5 | Completado: Plan de Pruebas y evidencias v1.0 (adjunto D) e Informe Final; de 60 casos, 47 aprobados, 6 parciales y 7 no ejecutados |
@@ -291,7 +296,7 @@ El código se desarrolló entre el 01-09 y el 18-11-2026 en una carpeta local, c
 |---|---|---|
 | Johao Ramírez | Análisis, arquitectura, desarrollo, datos, pruebas y documentación | — |
 
-Proyecto individual, con desvinculación de equipo autorizada por el docente de la asignatura.
+Proyecto individual, autorizado por el docente de la asignatura.
 
 ---
 

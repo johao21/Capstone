@@ -19,8 +19,7 @@ from sqlalchemy.orm import Session
 from .. import acceso, recomendacion
 from ..config import get_settings
 from ..db import obtener_sesion
-from ..models import Aislado, AnalisisGenomico, Centro, Fago, InteraccionConocida, Prediccion, PrediccionFago, Solicitud, Usuario
-from .solicitudes import _ultimos_analisis
+from ..models import Aislado, Centro, Fago, InteraccionConocida, Prediccion, PrediccionFago, Solicitud, Usuario
 
 router = APIRouter(prefix="/api/v1/tablero", tags=["Tablero"])
 
@@ -52,17 +51,15 @@ def _filas(session: Session, desde: date | None, hasta: date | None, centro_id: 
         .where(*filtro)
     )
     filas = session.execute(consulta).all()
-    analisis = _ultimos_analisis(session, [s.id for s, _, _ in filas])
     salida = []
     for sol, aislado, centro in filas:
-        a: AnalisisGenomico | None = analisis.get(sol.id)
         fila = {
             "solicitud_id": sol.id,
             "mes": sol.creada_en.strftime("%Y-%m"),
             "centro": centro,
             "mecanismo": aislado.mecanismo_resistencia or "desconocido",
-            "especie": (a.especie_detectada if a and a.especie_detectada else aislado.especie_declarada),
-            "locus_k": a.locus_k_tipo if a and recomendacion.locus_tipificado(a.locus_k_tipo) else None,
+            "especie": sol.especie_detectada or aislado.especie_declarada,
+            "locus_k": sol.locus_k_tipo if recomendacion.locus_tipificado(sol.locus_k_tipo) else None,
         }
         if especie and fila["especie"].lower() != especie.lower():
             continue

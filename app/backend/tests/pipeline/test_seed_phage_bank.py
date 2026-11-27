@@ -3,7 +3,7 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
-from app.models import Base, Fago, FagoOrigen, FuenteDatos
+from app.models import Base, Fago
 from pipeline.seed_phage_bank import leer_filas, normalizar_ciclo, sembrar, version_desde_nombre
 
 # Encabezados de la tabla de INPHARED (formato verificado, ver el módulo seed_phage_bank).
@@ -42,6 +42,11 @@ def filas():
     return leer_filas(TABLA.splitlines(keepends=True))
 
 
+def origenes(sesion) -> int:
+    """Cuántos orígenes hay en total: una entrada de `fago.origenes` por fuente y versión de cada fago."""
+    return sum(len(o) for o in sesion.scalars(select(Fago.origenes)))
+
+
 def test_se_limpia_el_enlace_html_y_se_convierte_kb_a_pb():
     primera = next(filas())
     assert primera["accesion"] == "SYN000001"
@@ -58,7 +63,9 @@ def test_filtra_por_hospedador_descarta_cortos_y_duplicados(sesion):
     assert r.duplicados_en_archivo == 1
     assert r.fagos_nuevos == 3
     assert sesion.scalar(select(func.count()).select_from(Fago)) == 3
-    assert sesion.scalar(select(func.count()).select_from(FagoOrigen)) == 3
+    assert origenes(sesion) == 3
+    fago = sesion.scalars(select(Fago).where(Fago.accesion == "SYN000001")).one()
+    assert [(o["fuente"], o["version"], o["id_externo"]) for o in fago.origenes] == [("INPHARED", "7Apr2026", "SYN000001")]
 
 
 def test_limite_acota_la_cantidad_de_fagos(sesion):
@@ -71,14 +78,14 @@ def test_segunda_carga_no_duplica_nada(sesion):
     r = sembrar(sesion, filas(), "INPHARED", "7Apr2026", hospedador="Klebsiella")
     assert r.fagos_nuevos == 0 and r.fagos_existentes == 3 and r.origenes_nuevos == 0
     assert sesion.scalar(select(func.count()).select_from(Fago)) == 3
-    assert sesion.scalar(select(func.count()).select_from(FuenteDatos)) == 1
+    assert origenes(sesion) == 3
 
 
 def test_un_fago_de_otra_version_conserva_ambos_origenes(sesion):
     sembrar(sesion, filas(), "INPHARED", "7Apr2026", hospedador="Klebsiella")
     sembrar(sesion, filas(), "INPHARED", "7May2026", hospedador="Klebsiella")
     assert sesion.scalar(select(func.count()).select_from(Fago)) == 3
-    assert sesion.scalar(select(func.count()).select_from(FagoOrigen)) == 6
+    assert origenes(sesion) == 6
 
 
 def test_los_fagos_nuevos_quedan_pendientes_de_curaduria(sesion):

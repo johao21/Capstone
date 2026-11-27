@@ -9,10 +9,8 @@ from sqlalchemy.orm import Session
 from app.estados import cambiar_estado
 from app.models import (
     Alerta,
-    AnalisisGenomico,
     Auditoria,
     Fago,
-    ModeloPrediccion,
     Prediccion,
     PrediccionFago,
     Trabajo,
@@ -20,10 +18,13 @@ from app.models import (
 )
 from app.registro import crear_solicitud
 from pipeline.herramientas import ErrorHerramienta
-from pipeline.prediccion import procesar_prediccion
+from pipeline.prediccion import ErrorPrediccion, procesar_prediccion
 from pipeline.trabajos import MAX_INTENTOS, reclamar
 
 FASTA = ">c\nACGTACGTACGTACGT\n"
+# Ficha del modelo que devuelve `predecir` (en producción la arma ml.modelo.describir con los archivos de ml/models).
+FICHA = {"version": "phl-prueba", "algoritmo": "XGBoost (prueba)", "entrenado_en": "2026-11-01T00:00:00+00:00",
+         "n_entrenamiento": 100, "metricas": {"top5": 0.9}, "parametros": {}}
 
 
 @pytest.fixture()
@@ -38,7 +39,8 @@ def solicitud_analizada(s, tmp_path, con_proteinas=True):
     fasta.write_text(FASTA, encoding="utf-8")
     sol = crear_solicitud(s, fasta, "P-1", tmp_path / "genomas")
     cambiar_estado(s, sol, "en_analisis")
-    s.add(AnalisisGenomico(solicitud_id=sol.id, especie_detectada="Klebsiella pneumoniae", locus_k_tipo="KL2", locus_k_confianza="Good"))
+    sol.especie_detectada, sol.locus_k_tipo, sol.locus_k_confianza = "Klebsiella pneumoniae", "KL2", "Good"
+    sol.analizado_en = datetime.now(timezone.utc)
     trabajo = Trabajo(tipo="prediccion", solicitud_id=sol.id)
     s.add(trabajo)
     s.flush()
@@ -47,13 +49,6 @@ def solicitud_analizada(s, tmp_path, con_proteinas=True):
         carpeta.mkdir(parents=True)
         (carpeta / "proteinas.faa").write_text(">p\nMKV\n", encoding="utf-8")
     return sol, trabajo
-
-
-def modelo_activo(s, version="phl-prueba"):
-    m = ModeloPrediccion(version=version, algoritmo="XGBoost (prueba)", metricas={"top5": 0.9}, activo=True)
-    s.add(m)
-    s.flush()
-    return m
 
 
 def fago(s, nombre, estado="aprobado"):
@@ -68,6 +63,7 @@ def ranking_falso(*nombres_y_puntajes, baja=False):
     def predecir(ruta):
         assert ruta.name == "proteinas.faa"
         return {
+            "modelo": FICHA,
             "baja_confianza": baja, "motivo_baja_confianza": "locus poco representado" if baja else None, "similitud_maxima": 0.95,
             "cepas_similares": [{"cepa": "KP_1", "similitud": 0.95}],
             "ranking": [{"fago": n, "puntaje": p, "rango": i, "explicacion": {"metodo": "shap"},
@@ -86,7 +82,6 @@ def correr(s, trabajo, predecir, tmp_path):
 
 def test_deja_el_ranking_solo_con_los_fagos_aprobados_y_la_solicitud_lista(sesion, tmp_path):
     sol, trabajo = solicitud_analizada(sesion, tmp_path)
-    modelo = modelo_activo(sesion)
     aprobado_a, aprobado_b = fago(sesion, "A"), fago(sesion, "B")
     fago(sesion, "C", estado="pendiente")  # el modelo lo conoce, pero nadie lo aprobó
     mic = Usuario(correo="m@x.cl", nombre="M", password_hash="x", rol="MIC", centro_id=sol.centro_id)
@@ -97,7 +92,9 @@ def test_deja_el_ranking_solo_con_los_fagos_aprobados_y_la_solicitud_lista(sesio
 
     assert t.estado == "ok" and sol.estado == "prediccion_lista"
     pred = sesion.scalars(select(Prediccion)).one()
-    assert pred.modelo_id == modelo.id and pred.locus_k_tipo == "KL2" and pred.baja_confianza is False
+    # La predicción lleva la ficha del modelo que la generó (RF-35, RF-39), no una referencia a una tabla.
+    assert pred.modelo_version == "phl-prueba" and pred.modelo == FICHA
+    assert pred.locus_k_tipo == "KL2" and pred.baja_confianza is False
     assert pred.detalle["fagos_en_el_modelo"] == 3 and pred.detalle["fagos_aprobados"] == 2
     items = sesion.scalars(select(PrediccionFago).order_by(PrediccionFago.rango)).all()
     assert [(i.fago_id, i.rango) for i in items] == [(aprobado_a.id, 1), (aprobado_b.id, 2)]  # el rango se recalcula entre los aprobados
@@ -111,7 +108,6 @@ def test_deja_el_ranking_solo_con_los_fagos_aprobados_y_la_solicitud_lista(sesio
 
 def test_una_prediccion_de_baja_confianza_queda_marcada(sesion, tmp_path):
     _, trabajo = solicitud_analizada(sesion, tmp_path)
-    modelo_activo(sesion)
     fago(sesion, "A")
     correr(sesion, trabajo, ranking_falso(("A", 0.5), baja=True), tmp_path)
     pred = sesion.scalars(select(Prediccion)).one()
@@ -121,18 +117,20 @@ def test_una_prediccion_de_baja_confianza_queda_marcada(sesion, tmp_path):
 @pytest.mark.parametrize(
     "preparar, texto",
     [
-        ("sin_modelo", "No hay un modelo entrenado"),
+        ("sin_modelo", "Faltan los artefactos del modelo"),
         ("sin_aprobados", "No hay fagos aprobados"),
         ("sin_proteinas", "No se encuentran las proteínas"),
     ],
 )
 def test_si_falta_algo_la_solicitud_pasa_a_error_con_el_motivo_sin_reintentos(sesion, tmp_path, preparar, texto):
     sol, trabajo = solicitud_analizada(sesion, tmp_path, con_proteinas=preparar != "sin_proteinas")
-    if preparar != "sin_modelo":
-        modelo_activo(sesion)
     if preparar == "sin_aprobados":
         fago(sesion, "A", estado="pendiente")
-    t = correr(sesion, trabajo, ranking_falso(("A", 0.9)), tmp_path)
+    predecir = ranking_falso(("A", 0.9))
+    if preparar == "sin_modelo":
+        def predecir(ruta):  # lo que hace el worker cuando no están los archivos de ml/models
+            raise ErrorPrediccion("Faltan los artefactos del modelo en /app/ml/models: entrénalo con `python -m ml.entrenar --registrar`")
+    t = correr(sesion, trabajo, predecir, tmp_path)
     assert t.estado == "fallido" and texto in t.error
     assert sol.estado == "error" and texto in sol.motivo_estado
     assert sesion.scalars(select(Prediccion)).first() is None  # no queda un ranking a medias
@@ -140,7 +138,6 @@ def test_si_falta_algo_la_solicitud_pasa_a_error_con_el_motivo_sin_reintentos(se
 
 def test_una_herramienta_caida_se_reintenta_y_al_tercer_intento_falla(sesion, tmp_path):
     sol, _ = solicitud_analizada(sesion, tmp_path)
-    modelo_activo(sesion)
     fago(sesion, "A")
 
     def cae(ruta):
@@ -159,7 +156,6 @@ def test_una_herramienta_caida_se_reintenta_y_al_tercer_intento_falla(sesion, tm
 def test_un_reintento_manual_desde_error_vuelve_a_predecir(sesion, tmp_path):
     sol, trabajo = solicitud_analizada(sesion, tmp_path)
     cambiar_estado(sesion, sol, "error", motivo="falla previa")
-    modelo_activo(sesion)
     fago(sesion, "A")
     correr(sesion, trabajo, ranking_falso(("A", 0.7)), tmp_path)
     assert sol.estado == "prediccion_lista"

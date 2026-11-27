@@ -15,7 +15,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.estados import cambiar_estado
-from app.models import AnalisisGenomico, Aislado, Genoma, Solicitud, Trabajo
+from app.models import Aislado, Solicitud, Trabajo
 
 from .especie import ResultadoEspecie, es_kpneumoniae
 from .fasta import validar_fasta
@@ -35,7 +35,6 @@ class Pasos:
     especie: Callable[[str, str], ResultadoEspecie]  # (ruta del genoma, especie declarada)
     locus_k: Callable[[str, Path], ResultadoLocusK]  # (ruta del genoma, carpeta de trabajo)
     genes: Callable[[str, Path], ResultadoGenes]  # (ruta del genoma, carpeta de trabajo)
-    guardar_crudo: Callable[[dict], str]  # guarda el resultado completo en MongoDB y devuelve su _id
     versiones: Callable[[], dict]
 
 
@@ -71,11 +70,11 @@ def reclamar(session: Session, tipo: str, worker_id: str, ahora: datetime | None
     return trabajo
 
 
-def _guardar_qc(genoma: Genoma, qc: ResultadoQC) -> None:
-    """Copia las métricas y el veredicto del QC a las columnas del genoma."""
+def _guardar_qc(aislado: Aislado, qc: ResultadoQC) -> None:
+    """Copia las métricas y el veredicto del QC a las columnas del genoma (que están en el aislado)."""
     m = qc.metricas
-    genoma.qc_longitud, genoma.qc_contigs, genoma.qc_n50 = m.longitud, m.contigs, m.n50
-    genoma.qc_gc, genoma.qc_prop_ambiguas, genoma.qc_resultado = m.gc, m.prop_ambiguas, qc.resultado
+    aislado.qc_longitud, aislado.qc_contigs, aislado.qc_n50 = m.longitud, m.contigs, m.n50
+    aislado.qc_gc, aislado.qc_prop_ambiguas, aislado.qc_resultado = m.gc, m.prop_ambiguas, qc.resultado
 
 
 def _rechazar(session: Session, solicitud: Solicitud, trabajo: Trabajo, motivo: str) -> None:
@@ -86,24 +85,23 @@ def _rechazar(session: Session, solicitud: Solicitud, trabajo: Trabajo, motivo: 
 
 def _ejecutar(session: Session, trabajo: Trabajo, sol: Solicitud, pasos: Pasos, umbrales: Umbrales | None, salida: Path) -> None:
     """Aplica en orden los pasos del pipeline; el primero que rechaza el genoma termina el proceso."""
-    genoma = session.get(Genoma, sol.genoma_id)
-    aislado = session.get(Aislado, sol.aislado_id)
+    aislado = session.get(Aislado, sol.aislado_id)  # el genoma (archivo y QC) vive en las columnas del aislado
 
     # 1. El archivo debe ser un FASTA de ADN válido (la API ya lo revisó al subirlo; se repite por seguridad).
-    fasta = validar_fasta(genoma.ruta_archivo)
+    fasta = validar_fasta(aislado.ruta_archivo)
     if not fasta.valido:
         _rechazar(session, sol, trabajo, "FASTA inválido: " + "; ".join(fasta.errores))
         return
 
     # 2. Control de calidad del ensamblado.
-    qc = clasificar(calcular_metricas(genoma.ruta_archivo), umbrales)
-    _guardar_qc(genoma, qc)
+    qc = clasificar(calcular_metricas(aislado.ruta_archivo), umbrales)
+    _guardar_qc(aislado, qc)
     if qc.resultado == RECHAZADO:
         _rechazar(session, sol, trabajo, "calidad del genoma: " + "; ".join(qc.motivos))
         return
 
     # 3. Especie: el MVP solo acepta Klebsiella pneumoniae. Se explica por qué si no lo es.
-    esp = pasos.especie(genoma.ruta_archivo, aislado.especie_declarada)
+    esp = pasos.especie(aislado.ruta_archivo, aislado.especie_declarada)
     if not es_kpneumoniae(esp.especie):
         detectada = esp.especie or "no identificada"
         partes = []
@@ -118,12 +116,12 @@ def _ejecutar(session: Session, trabajo: Trabajo, sol: Solicitud, pasos: Pasos, 
     # 4 y 5. Locus K (Kaptive) y genes (Prodigal). Si una herramienta falla lanzan ErrorHerramienta,
     # que `procesar_pipeline` convierte en reintento.
     carpeta = salida / str(sol.id)
-    locus = pasos.locus_k(genoma.ruta_archivo, carpeta / "locus_k")
-    genes = pasos.genes(genoma.ruta_archivo, carpeta / "genes")
+    locus = pasos.locus_k(aislado.ruta_archivo, carpeta / "locus_k")
+    genes = pasos.genes(aislado.ruta_archivo, carpeta / "genes")
 
-    # Documento completo para MongoDB; en PostgreSQL queda solo el resumen consultable.
+    # Resultado completo del análisis: va en la columna JSONB `detalle_analisis`; las columnas de al lado guardan el resumen consultable.
+    versiones = pasos.versiones()
     crudo = {
-        "solicitud_id": str(sol.id),
         "qc": qc.como_dict(),
         "especie": {
             "detectada": esp.especie,
@@ -135,28 +133,24 @@ def _ejecutar(session: Session, trabajo: Trabajo, sol: Solicitud, pasos: Pasos, 
         },
         "locus_k": {"tipo": locus.tipo, "confianza": locus.confianza, "detalle": locus.detalle},
         "genes": {"n": genes.n_genes, "ruta_proteinas": genes.ruta_proteinas},
-        "herramientas": pasos.versiones(),
+        "herramientas": versiones,
     }
-    mongo_id = pasos.guardar_crudo(crudo)
 
-    session.add(
-        AnalisisGenomico(
-            solicitud_id=sol.id,
-            especie_detectada=esp.especie,
-            distancia_especie=esp.distancia,
-            locus_k_tipo=locus.tipo,
-            locus_k_confianza=locus.confianza,
-            n_genes=genes.n_genes,
-            n_proteinas=genes.n_proteinas,
-            versiones_herramientas=pasos.versiones(),
-            parametros={
-                "umbrales_qc": (umbrales or Umbrales()).__dict__,
-                "especie_verificada": esp.verificada,
-                "especie_referencia": esp.referencia,
-            },
-            mongo_id=mongo_id,
-        )
-    )
+    # El análisis vive en las columnas de la propia solicitud; si el pipeline se repite, el último resultado reemplaza al anterior.
+    sol.especie_detectada = esp.especie
+    sol.distancia_especie = esp.distancia
+    sol.locus_k_tipo = locus.tipo
+    sol.locus_k_confianza = locus.confianza
+    sol.n_genes = genes.n_genes
+    sol.n_proteinas = genes.n_proteinas
+    sol.versiones_herramientas = versiones
+    sol.parametros_analisis = {
+        "umbrales_qc": (umbrales or Umbrales()).__dict__,
+        "especie_verificada": esp.verificada,
+        "especie_referencia": esp.referencia,
+    }
+    sol.detalle_analisis = crudo
+    sol.analizado_en = _ahora()
     # Deja encolado el trabajo de predicción: lo atiende worker-prediction (pipeline/prediccion.py).
     session.add(Trabajo(tipo="prediccion", solicitud_id=sol.id))
     trabajo.estado, trabajo.error, trabajo.terminado_en = "ok", None, _ahora()
@@ -208,7 +202,7 @@ def reintentar_o_fallar(session: Session, trabajo: Trabajo, exc: Exception) -> N
 def registrar_fallo_inesperado(session: Session, trabajo_id, motivo: str) -> None:
     """Deja el trabajo en `fallido` y la solicitud en `error`, para que el usuario pueda reintentar.
 
-    Se usa tras un error que `procesar_pipeline` no maneja (p. ej. MongoDB caído). El rollback del worker
+    Se usa tras un error que `procesar_pipeline` no maneja (p. ej. un fallo de la base de datos a mitad del trabajo). El rollback del worker
     devolvió la solicitud a `registrada`, y la máquina de estados solo llega a `error` desde `en_analisis`.
     """
     trabajo = session.get(Trabajo, trabajo_id)

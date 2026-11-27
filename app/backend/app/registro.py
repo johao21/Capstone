@@ -1,4 +1,4 @@
-"""Alta de una solicitud: aislado, genoma y trabajo de pipeline (RF-01, RF-09).
+"""Alta de una solicitud: aislado (con su genoma) y trabajo de pipeline (RF-01, RF-09).
 
 Lo usa la API (`POST /api/v1/solicitudes`), que pasa el técnico autenticado. Sin técnico (herramientas de
 consola y pruebas) se atribuye a un centro y un usuario de demostración que no pueden iniciar sesión.
@@ -14,7 +14,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import Aislado, Centro, Genoma, Solicitud, SolicitudHistorial, Trabajo, Usuario
+from .models import Aislado, Centro, Solicitud, Trabajo, Usuario
 
 CODIGO_CENTRO = "DEMO"
 CORREO_DEMO = "demo.tecnico@sirfa.local"
@@ -64,7 +64,7 @@ def crear_solicitud(
     usuario: Usuario | None = None,
     solicitante_id: uuid.UUID | None = None,
 ) -> Solicitud:
-    """Deja un aislado, su genoma y una solicitud Registrada con un trabajo `pipeline` pendiente.
+    """Deja un aislado (con su genoma) y una solicitud Registrada con un trabajo `pipeline` pendiente.
 
     Con `codigo_unico` se agrega un sufijo aleatorio al código interno (útil en la demo por consola);
     la API lo desactiva para que un código repetido en el centro se informe como conflicto.
@@ -92,29 +92,22 @@ def crear_solicitud(
         mecanismo_resistencia=mecanismo_resistencia,
         observaciones=observaciones,
         creado_por=usuario.id,
-    )
-    session.add(aislado)
-    session.flush()  # cada flush entrega el id que necesita la fila siguiente (aislado -> genoma -> solicitud)
-    genoma = Genoma(
-        aislado_id=aislado.id,
         ruta_archivo=str(destino),
         sha256=digest,
         tamano_bytes=destino.stat().st_size,
         nombre_original=nombre_original or fasta.name,
     )
-    session.add(genoma)
-    session.flush()
+    session.add(aislado)
+    session.flush()  # el flush entrega el id que necesita la fila siguiente (aislado -> solicitud)
     solicitud = Solicitud(
         aislado_id=aislado.id,
-        genoma_id=genoma.id,
         centro_id=usuario.centro_id,
         solicitante_id=solicitante_id or usuario.id,
         creada_por=usuario.id,
     )
     session.add(solicitud)
     session.flush()
-    # Primera fila del historial (estado_anterior=None) y el trabajo que el worker va a reclamar.
-    session.add(SolicitudHistorial(solicitud_id=solicitud.id, estado_anterior=None, estado_nuevo="registrada", usuario_id=usuario.id))
+    # El trabajo que el worker va a reclamar. El historial de estados no tiene tabla propia: ver `estados.historial_de`.
     session.add(Trabajo(tipo="pipeline", solicitud_id=solicitud.id))
     session.flush()
     return solicitud

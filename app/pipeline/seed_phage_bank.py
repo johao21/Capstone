@@ -21,13 +21,14 @@ import re
 import sys
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Fago, FagoOrigen, FuenteDatos
+from app.models import Fago
 
 URL_INPHARED = "https://s3.climb.ac.uk/millardlab-inphared/2026/7Apr2026_millardlab_website_table.txt.gz"
 
@@ -127,16 +128,9 @@ def sembrar(
     limite: int | None = None,
     url: str | None = None,
 ) -> Resumen:
-    """Inserta fagos y su origen; no hace commit."""
+    """Inserta fagos y su origen (fuente y versión, dentro de `fago.origenes`); no hace commit."""
     resumen = Resumen()
-    # Registra (o reutiliza) la fuente y versión de la que vienen los datos.
-    fuente_db = session.execute(
-        select(FuenteDatos).where(FuenteDatos.nombre == fuente, FuenteDatos.version == version)
-    ).scalar_one_or_none()
-    if fuente_db is None:
-        fuente_db = FuenteDatos(nombre=fuente, version=version, url=url)
-        session.add(fuente_db)
-        session.flush()
+    descargado_en = datetime.now(timezone.utc).isoformat()
 
     vistos: set[str] = set()  # accesiones ya aceptadas en esta corrida
     for fila in filas:
@@ -177,12 +171,11 @@ def sembrar(
         else:
             resumen.fagos_existentes += 1
 
-        # Un fago puede tener varios orígenes (uno por fuente y versión); el par (fago, fuente) es la clave.
-        origen = session.get(FagoOrigen, (fago.id, fuente_db.id))
-        if origen is None:
-            session.add(
-                FagoOrigen(fago_id=fago.id, fuente_id=fuente_db.id, id_externo=fila["accesion"], version_origen=version)
-            )
+        # Un fago puede tener varios orígenes (uno por fuente y versión). Se reasigna la lista entera para que SQLAlchemy note el cambio.
+        origenes = list(fago.origenes or [])
+        if not any(o.get("fuente") == fuente and o.get("version") == version for o in origenes):
+            origenes.append({"fuente": fuente, "version": version, "url": url, "id_externo": fila["accesion"], "descargado_en": descargado_en})
+            fago.origenes = origenes
             resumen.origenes_nuevos += 1
     session.flush()
     return resumen

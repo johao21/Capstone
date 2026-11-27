@@ -1,8 +1,13 @@
-"""Modelos SQLAlchemy del núcleo de SIRFA (Documento de Diseño, sección 3).
+"""Modelos SQLAlchemy de SIRFA: 12 tablas (Documento de Diseño, sección 3, simplificado por la solicitud de cambio SC-07).
 
-Contiene acceso, solicitudes, pipeline, banco de fagos y, desde la migración 0002,
-sesiones revocadas, auditoría de solo adición, alertas, predicciones y recomendaciones
-emitidas.
+Acceso (`centro`, `usuario`), solicitudes (`aislado`, `solicitud`, `trabajo`), banco de fagos (`fago`,
+`interaccion_conocida`), predicción y recomendación (`prediccion`, `prediccion_fago`, `recomendacion_emitida`),
+auditoría de solo adición (`auditoria`) y alertas (`alerta`).
+
+Lo que antes eran tablas de detalle quedó como columnas o como JSON dentro de la tabla a la que pertenece:
+el genoma, en `aislado`; el análisis genómico, en `solicitud`; el origen de cada fago, en `fago.origenes`;
+la versión del modelo, en `prediccion.modelo`; los candidatos emitidos, en `recomendacion_emitida.candidatos`;
+las sesiones cerradas, en `usuario.sesiones_revocadas`, y el historial de estados se lee de `auditoria`.
 """
 from __future__ import annotations
 
@@ -121,12 +126,15 @@ class Usuario(Base):
     # Bloqueo por intentos fallidos de inicio de sesión (RNF-05): 5 intentos y 15 minutos.
     intentos_fallidos: Mapped[int] = mapped_column(Integer, default=0)
     bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Sesiones cerradas con "Cerrar sesión" (RF-02): lista de {"sid": ..., "expira_en": ...}. Los tokens JWT de una sesión llevan su
+    # `sid`; si está aquí, se rechazan. Cada entrada se descarta sola cuando vence el último token de esa sesión.
+    sesiones_revocadas: Mapped[list] = mapped_column(TipoJSON, default=list)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
 
 
 # ---------------------------------------------------------------- solicitudes
 class Aislado(Base):
-    """Muestra bacteriana aislada de un paciente, con sus datos de contexto."""
+    """Muestra bacteriana aislada de un paciente, con sus datos de contexto y su genoma (archivo FASTA y métricas de calidad)."""
 
     __tablename__ = "aislado"
     __table_args__ = (
@@ -134,6 +142,7 @@ class Aislado(Base):
         UniqueConstraint("centro_id", "codigo_interno", name="uq_aislado_centro_codigo"),
         restriccion("tipo_muestra", TIPOS_MUESTRA, "tipo_muestra"),
         restriccion("mecanismo_resistencia", MECANISMOS, "mecanismo_resistencia"),
+        restriccion("qc_resultado", RESULTADOS_QC, "qc_resultado"),
     )
     id: Mapped[uuid.UUID] = pk()
     codigo_interno: Mapped[str] = mapped_column(String(80))
@@ -145,19 +154,7 @@ class Aislado(Base):
     observaciones: Mapped[str | None] = mapped_column(Text)
     creado_por: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id", ondelete="RESTRICT"))
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
-
-
-class Genoma(Base):
-    """Archivo FASTA del genoma de un aislado, con las métricas de calidad que calcula el pipeline."""
-
-    __tablename__ = "genoma"
-    __table_args__ = (
-        # Evita registrar dos veces el mismo archivo (mismo SHA-256) para un aislado.
-        UniqueConstraint("aislado_id", "sha256", name="uq_genoma_aislado_sha256"),
-        restriccion("qc_resultado", RESULTADOS_QC, "qc_resultado"),
-    )
-    id: Mapped[uuid.UUID] = pk()
-    aislado_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("aislado.id", ondelete="RESTRICT"))
+    # Genoma del aislado: el FASTA se guarda en disco con su SHA-256 como nombre; aquí quedan la ruta y las métricas de calidad.
     ruta_archivo: Mapped[str] = mapped_column(String(500))
     sha256: Mapped[str] = mapped_column(String(64))
     tamano_bytes: Mapped[int] = mapped_column(BigInteger)
@@ -173,7 +170,7 @@ class Genoma(Base):
 
 
 class Solicitud(Base):
-    """Pedido de análisis de un aislado. Su `estado` sigue la máquina de estados de estados.py."""
+    """Pedido de análisis de un aislado, con el resultado de su análisis genómico. Su `estado` sigue la máquina de estados de estados.py."""
 
     __tablename__ = "solicitud"
     __table_args__ = (
@@ -184,7 +181,6 @@ class Solicitud(Base):
     )
     id: Mapped[uuid.UUID] = pk()
     aislado_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("aislado.id", ondelete="RESTRICT"))
-    genoma_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("genoma.id", ondelete="RESTRICT"))
     centro_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("centro.id", ondelete="RESTRICT"))
     solicitante_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id", ondelete="RESTRICT"))
     creada_por: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuario.id", ondelete="RESTRICT"))
@@ -194,19 +190,19 @@ class Solicitud(Base):
     creada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
     # onupdate: se refresca sola cada vez que SQLAlchemy actualiza la fila.
     actualizada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora, onupdate=ahora)
-
-
-class SolicitudHistorial(Base):
-    """Registro de cada cambio de estado de una solicitud (quién, cuándo y por qué)."""
-
-    __tablename__ = "solicitud_historial"
-    id: Mapped[uuid.UUID] = pk()
-    solicitud_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("solicitud.id", ondelete="RESTRICT"), index=True)
-    estado_anterior: Mapped[str | None] = mapped_column(String(20))
-    estado_nuevo: Mapped[str] = mapped_column(String(20))
-    usuario_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuario.id", ondelete="RESTRICT"))
-    motivo: Mapped[str | None] = mapped_column(Text)
-    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
+    # Análisis genómico (lo escribe el worker al terminar el pipeline). Mientras `analizado_en` es None, el análisis no existe.
+    especie_detectada: Mapped[str | None] = mapped_column(String(120))
+    distancia_especie: Mapped[float | None] = mapped_column(Float)
+    locus_k_tipo: Mapped[str | None] = mapped_column(String(20))
+    locus_k_confianza: Mapped[str | None] = mapped_column(String(40))
+    n_genes: Mapped[int | None] = mapped_column(Integer)
+    n_proteinas: Mapped[int | None] = mapped_column(Integer)
+    # Versiones de las herramientas y parámetros usados, para poder reproducir el análisis.
+    versiones_herramientas: Mapped[dict] = mapped_column(TipoJSON, default=dict)
+    parametros_analisis: Mapped[dict] = mapped_column(TipoJSON, default=dict)
+    # Resultado completo y voluminoso del pipeline (QC, especie, locus K, genes y herramientas), tal como salió.
+    detalle_analisis: Mapped[dict] = mapped_column(TipoJSON, default=dict)
+    analizado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Trabajo(Base):
@@ -239,39 +235,7 @@ class Trabajo(Base):
     terminado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class AnalisisGenomico(Base):
-    """Resumen del análisis genómico de una solicitud. El detalle crudo vive en MongoDB (`mongo_id`)."""
-
-    __tablename__ = "analisis_genomico"
-    id: Mapped[uuid.UUID] = pk()
-    solicitud_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("solicitud.id", ondelete="RESTRICT"), index=True)
-    especie_detectada: Mapped[str | None] = mapped_column(String(120))
-    distancia_especie: Mapped[float | None] = mapped_column(Float)
-    locus_k_tipo: Mapped[str | None] = mapped_column(String(20))
-    locus_k_confianza: Mapped[str | None] = mapped_column(String(40))
-    n_genes: Mapped[int | None] = mapped_column(Integer)
-    n_proteinas: Mapped[int | None] = mapped_column(Integer)
-    # Versiones de las herramientas y parámetros usados, para poder reproducir el análisis.
-    versiones_herramientas: Mapped[dict] = mapped_column(TipoJSON, default=dict)
-    parametros: Mapped[dict] = mapped_column(TipoJSON, default=dict)
-    # _id del documento completo en la colección `analisis_genomico` de MongoDB.
-    mongo_id: Mapped[str | None] = mapped_column(String(40))
-    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
-
-
 # ---------------------------------------------------------------------- banco
-class FuenteDatos(Base):
-    """Base de datos externa de la que se importó información (p. ej. INPHARED) y su versión."""
-
-    __tablename__ = "fuente_datos"
-    __table_args__ = (UniqueConstraint("nombre", "version", name="uq_fuente_datos_nombre_version"),)
-    id: Mapped[uuid.UUID] = pk()
-    nombre: Mapped[str] = mapped_column(String(80))
-    version: Mapped[str] = mapped_column(String(80))
-    url: Mapped[str | None] = mapped_column(String(500))
-    descargado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
-
-
 class Fago(Base):
     """Fago (virus que infecta bacterias) del banco. Nace `pendiente` hasta que alguien lo cura."""
 
@@ -293,20 +257,10 @@ class Fago(Base):
     estado_curaduria: Mapped[str] = mapped_column(String(12), default="pendiente")
     curado_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuario.id", ondelete="RESTRICT"))
     curado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    mongo_id: Mapped[str | None] = mapped_column(String(40))
+    # Procedencia: una entrada por fuente y versión de la que salió el fago (un fago puede venir de varias):
+    # {"fuente": "INPHARED", "version": "7Apr2026", "url": ..., "id_externo": ..., "descargado_en": ...}.
+    origenes: Mapped[list] = mapped_column(TipoJSON, default=list)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
-
-
-class FagoOrigen(Base):
-    """Procedencia de un fago: de qué fuente y versión salió, y con qué identificador allí."""
-
-    __tablename__ = "fago_origen"
-    # Clave compuesta (fago, fuente): un fago puede venir de varias fuentes.
-    fago_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("fago.id", ondelete="RESTRICT"), primary_key=True)
-    fuente_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("fuente_datos.id", ondelete="RESTRICT"), primary_key=True)
-    id_externo: Mapped[str] = mapped_column(String(80))
-    version_origen: Mapped[str] = mapped_column(String(80))
-    descargado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
 
 
 class InteraccionConocida(Base):
@@ -320,20 +274,13 @@ class InteraccionConocida(Base):
     cepa: Mapped[str | None] = mapped_column(String(120))
     locus_k_tipo: Mapped[str | None] = mapped_column(String(20), index=True)
     resultado: Mapped[str] = mapped_column(String(12))
-    fuente_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("fuente_datos.id", ondelete="RESTRICT"))
+    # Base de datos externa de la que se importó (p. ej. PhageHostLearn) y su versión.
+    fuente: Mapped[str] = mapped_column(String(120))
+    fuente_version: Mapped[str] = mapped_column(String(80))
     referencia: Mapped[str | None] = mapped_column(String(300))
 
 
-# ------------------------------------------------------------ sesión y auditoría
-class SesionRevocada(Base):
-    """Sesión cerrada con "Cerrar sesión" (RF-02). Los tokens JWT de una sesión llevan su `sid`; si está aquí, se rechazan."""
-
-    __tablename__ = "sesion_revocada"
-    sid: Mapped[str] = mapped_column(String(40), primary_key=True)
-    # Cuándo vence el último token de la sesión: pasada esa hora la fila ya no hace falta y se puede borrar.
-    expira_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
-
+# ---------------------------------------------------------------------- auditoría
 class Auditoria(Base):
     """Registro de solo adición de lo que ocurre en el sistema (RF-48 a RF-51).
 
@@ -381,29 +328,16 @@ class Alerta(Base):
 
 
 # ------------------------------------------------------------------ predicción
-class ModeloPrediccion(Base):
-    """Versión entrenada del modelo (RF-39): con qué algoritmo, cuándo, con cuántos datos y qué métricas obtuvo."""
-
-    __tablename__ = "modelo_prediccion"
-    id: Mapped[uuid.UUID] = pk()
-    version: Mapped[str] = mapped_column(String(40), unique=True)
-    algoritmo: Mapped[str] = mapped_column(String(120))
-    entrenado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
-    n_entrenamiento: Mapped[int | None] = mapped_column(Integer)
-    # top5, auc, sensibilidad y especificidad, con el esquema de validación usado.
-    metricas: Mapped[dict] = mapped_column(TipoJSON, default=dict)
-    parametros: Mapped[dict] = mapped_column(TipoJSON, default=dict)
-    ruta_artefacto: Mapped[str | None] = mapped_column(String(300))
-    activo: Mapped[bool] = mapped_column(Boolean, default=False)
-
-
 class Prediccion(Base):
-    """Ranking de fagos generado para una solicitud con una versión del modelo (RF-34, RF-35)."""
+    """Ranking de fagos generado para una solicitud con una versión del modelo (RF-34, RF-35, RF-39)."""
 
     __tablename__ = "prediccion"
     id: Mapped[uuid.UUID] = pk()
     solicitud_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("solicitud.id", ondelete="RESTRICT"), index=True)
-    modelo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("modelo_prediccion.id", ondelete="RESTRICT"))
+    # Versión del modelo que la generó, y una copia de su ficha (algoritmo, fecha de entrenamiento, datos y métricas) tal como
+    # estaba en ese momento: así la predicción se puede reconstruir aunque el modelo se vuelva a entrenar (RF-53).
+    modelo_version: Mapped[str] = mapped_column(String(40))
+    modelo: Mapped[dict] = mapped_column(TipoJSON, default=dict)
     locus_k_tipo: Mapped[str | None] = mapped_column(String(20))
     # RF-38: el locus K del aislado casi no aparece en los datos de entrenamiento.
     baja_confianza: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -441,21 +375,8 @@ class RecomendacionEmitida(Base):
     estado: Mapped[str] = mapped_column(String(12), default="vigente")
     observacion: Mapped[str | None] = mapped_column(Text)
     advertencia: Mapped[str] = mapped_column(Text)
+    # Candidatos de la versión, incluidos los descartados con su justificación. Una entrada por fago:
+    # {"fago_id", "rango", "puntaje", "descartado", "justificacion", "resultado_ensayo"}. Lo único que cambia después de la emisión
+    # es `resultado_ensayo` (RF-17): el microbiólogo lo anota cuando tiene el resultado del laboratorio.
+    candidatos: Mapped[list] = mapped_column(TipoJSON, default=list)
     emitida_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
-
-
-class RecomendacionCandidato(Base):
-    """Candidato de una recomendación emitida: se conservan también los descartados, con su justificación."""
-
-    __tablename__ = "recomendacion_candidato"
-    __table_args__ = (restriccion("resultado_ensayo", RESULTADOS_ENSAYO, "resultado_ensayo"),)
-    recomendacion_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("recomendacion_emitida.id", ondelete="RESTRICT"), primary_key=True
-    )
-    fago_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("fago.id", ondelete="RESTRICT"), primary_key=True)
-    rango: Mapped[int] = mapped_column(Integer)
-    puntaje: Mapped[float] = mapped_column(Float)
-    descartado: Mapped[bool] = mapped_column(Boolean, default=False)
-    justificacion: Mapped[str | None] = mapped_column(Text)
-    # RF-17: resultado del ensayo de laboratorio que el microbiólogo registra después de la emisión.
-    resultado_ensayo: Mapped[str] = mapped_column(String(12), default="no_ensayado")

@@ -66,7 +66,7 @@ CREATE TABLE fago (
 	estado_curaduria VARCHAR(12) NOT NULL, 
 	curado_por UUID, 
 	curado_en TIMESTAMP WITH TIME ZONE, 
-	mongo_id VARCHAR(40), 
+	documento_id VARCHAR(40), 
 	creado_en TIMESTAMP WITH TIME ZONE NOT NULL, 
 	CONSTRAINT pk_fago PRIMARY KEY (id), 
 	CONSTRAINT ck_fago_ciclo_vida CHECK (ciclo_vida IN ('litico', 'templado', 'desconocido')), 
@@ -164,7 +164,7 @@ CREATE TABLE analisis_genomico (
 	n_proteinas INTEGER, 
 	versiones_herramientas JSONB NOT NULL, 
 	parametros JSONB NOT NULL, 
-	mongo_id VARCHAR(40), 
+	documento_id VARCHAR(40), 
 	creado_en TIMESTAMP WITH TIME ZONE NOT NULL, 
 	CONSTRAINT pk_analisis_genomico PRIMARY KEY (id), 
 	CONSTRAINT fk_analisis_genomico_solicitud_id_solicitud FOREIGN KEY(solicitud_id) REFERENCES solicitud (id) ON DELETE RESTRICT

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models import AnalisisGenomico, Fago, FuenteDatos, InteraccionConocida
+from app.models import Fago, InteraccionConocida, Solicitud
 from app.routers import tablero
 
 FASTA = b">contig1\nACGTACGTACGTACGT\n>contig2\nTTGACCA\n"
@@ -27,8 +27,12 @@ def solicitud_con_locus(c, engine, codigo, locus, mecanismo="KPC"):
                files={"archivo": ("g.fasta", io.BytesIO(FASTA + b">" + codigo.encode() + b"\nACGT\n"))})
     assert r.status_code == 201, r.text
     sid = r.json()["id"]
+    from datetime import datetime, timezone
+
     with Session(engine) as s:
-        s.add(AnalisisGenomico(solicitud_id=uuid.UUID(sid), especie_detectada="Klebsiella pneumoniae", locus_k_tipo=locus, locus_k_confianza="Good"))
+        sol = s.get(Solicitud, uuid.UUID(sid))
+        sol.especie_detectada, sol.locus_k_tipo, sol.locus_k_confianza = "Klebsiella pneumoniae", locus, "Good"
+        sol.analizado_en = datetime.now(timezone.utc)
         s.commit()
     return sid
 
@@ -73,11 +77,11 @@ def test_una_brecha_es_un_locus_sin_fagos_con_evidencia_ni_candidatos(como, engi
     solicitud_con_locus(tec, engine, "E1", "KL2")
     solicitud_con_locus(tec, engine, "S1", "KL7")  # nadie conoce un fago para KL7
     with Session(engine) as s:
-        fuente = FuenteDatos(nombre="p", version="1")
         fago = Fago(accesion="NC_X", nombre="Klebsiella phage X", estado_curaduria="aprobado")
-        s.add_all([fuente, fago])
+        s.add(fago)
         s.flush()
-        s.add(InteraccionConocida(fago_id=fago.id, especie_hospedador="Klebsiella pneumoniae", cepa="c", locus_k_tipo="KL2", resultado="infecta", fuente_id=fuente.id))
+        s.add(InteraccionConocida(fago_id=fago.id, especie_hospedador="Klebsiella pneumoniae", cepa="c", locus_k_tipo="KL2", resultado="infecta",
+                                  fuente="p", fuente_version="1"))
         s.commit()
     grupos = {g["locus_k"]: g for g in como("epi").get("/api/v1/tablero/brechas").json()["grupos"]}
     assert grupos["KL2"]["fagos_con_evidencia"] == 1 and grupos["KL2"]["brecha"] is False

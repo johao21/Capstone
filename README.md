@@ -14,8 +14,8 @@
 
 ## Estado (25-11-2026)
 
-- Funciona el ciclo completo: registro del aislado, análisis, predicción, validación por el microbiólogo, recomendación y alertas. Son 47 operaciones de API, 5 roles y 20 de las 24 tablas diseñadas.
-- 212 pruebas automáticas del sistema (211 con SQLite en memoria y 1 de concurrencia contra PostgreSQL real) y 38 de la lógica de la app móvil.
+- Funciona el ciclo completo: registro del aislado, análisis, predicción, validación por el microbiólogo, recomendación y alertas. Son 47 operaciones de API, 5 roles y 12 tablas en PostgreSQL (el diseño preveía 24; SC-07, iniciada el 12-11-2026).
+- 217 pruebas automáticas del sistema (216 con SQLite en memoria y 1 de concurrencia contra PostgreSQL real) y 38 de la lógica de la app móvil.
 - Límites que importan: el modelo se entrenó con 200 cepas y 105 fagos del conjunto público PhageHostLearn y, ante un tipo de locus K que no vio, no supera a una línea base simple (lo marca de baja confianza); la web es JavaScript sin compilar, no Next.js; la app móvil es un primer corte de consulta y alertas, probada en teléfonos Android con Expo Go y sin notificaciones push.
 
 El detalle está en [`app/README.md`](app/README.md).
@@ -27,7 +27,7 @@ El detalle está en [`app/README.md`](app/README.md).
 | Backend y API | Python 3.12, FastAPI, SQLAlchemy 2, Alembic, Pydantic, PyJWT, argon2-cffi |
 | Bioinformática | Prodigal, Mash, Kaptive, Biopython, BLAST+ |
 | Aprendizaje automático | XGBoost, SHAP, scikit-learn, embeddings ESM-2 del conjunto PhageHostLearn |
-| Bases de datos | PostgreSQL 16 (dominio, cola de trabajos y auditoría), MongoDB 7 (salidas crudas del análisis) |
+| Bases de datos | PostgreSQL 16 (dominio, cola de trabajos, auditoría y detalle de los análisis en JSONB) |
 | Web | HTML, CSS y JavaScript sin compilar, servidos por la API |
 | App móvil | React Native con Expo |
 | Infraestructura y calidad | Docker, Docker Compose, pytest, GitHub Actions |
@@ -42,17 +42,17 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-En Windows también sirve el doble clic en `app/iniciar_sirfa.bat`. Luego se abre http://localhost:8000/ (web), http://localhost:8000/docs (documentación de la API) y http://localhost:8000/api/v1/salud (estado de las bases). El banco de fagos, las cuentas de demostración y las pruebas se explican en [`app/README.md`](app/README.md) y en el [Manual técnico y de despliegue](app/docs/MANUAL_TECNICO.md).
+En Windows también sirve el doble clic en `app/iniciar_sirfa.bat`. Luego se abre http://localhost:8000/ (web), http://localhost:8000/docs (documentación de la API) y http://localhost:8000/api/v1/salud (estado de la base de datos). El banco de fagos, las cuentas de demostración y las pruebas se explican en [`app/README.md`](app/README.md) y en el [Manual técnico y de despliegue](app/docs/MANUAL_TECNICO.md).
 
 ## Arquitectura
 
-Monolito modular con workers en segundo plano, en cinco contenedores Docker: `postgres`, `mongo`, `api`, `worker-pipeline` y `worker-prediction`.
+Monolito modular con workers en segundo plano, en cuatro contenedores Docker: `postgres`, `api`, `worker-pipeline` y `worker-prediction`.
 
 ```
 Navegador ─┐
            ├─► API (FastAPI): JWT, roles, auditoría ──► PostgreSQL (dominio, cola de trabajos, auditoría)
 App móvil ─┘                                                ▲
-                                                            ├── worker-pipeline ──► Mash · Kaptive · Prodigal ──► MongoDB (salidas crudas)
+                                                            ├── worker-pipeline ──► Mash · Kaptive · Prodigal ──► detalle del análisis (JSONB)
                                                             └── worker-prediction ──► BLAST · XGBoost · SHAP
 ```
 

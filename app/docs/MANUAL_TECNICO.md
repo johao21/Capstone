@@ -28,13 +28,12 @@ Linux y macOS deberían funcionar, porque todo corre en contenedores, pero no se
 
 | Servicio | Imagen | Función | Puerto |
 |---|---|---|---|
-| `postgres` | `postgres:16` | Dominio, cola de trabajos y auditoría | interno |
-| `mongo` | `mongo:7` | Salidas crudas del análisis genómico | interno |
+| `postgres` | `postgres:16` | Única base de datos: dominio, cola de trabajos, auditoría y detalle de los análisis (JSONB) | interno |
 | `api` | `sirfa-backend:dev` | API REST (FastAPI) y web; aplica las migraciones al arrancar | **8000** |
 | `worker-pipeline` | `sirfa-backend:dev` | Calidad del genoma, especie (Mash), locus K (Kaptive) y genes (Prodigal) | interno |
 | `worker-prediction` | `sirfa-backend:dev` | Ranking de fagos con BLAST, XGBoost y SHAP | interno |
 
-La API y los dos workers usan la misma imagen (Python 3.12 con Prodigal, BLAST+ y Mash; Kaptive se instala con pip) y cambian solo el comando. Los datos viven en cuatro volúmenes con nombre (`pgdata`, `mongodata`, `genomas`, `analisis`): sobreviven a `docker compose down` y solo `down -v` los borra. Además se montan `./data` (referencias y genomas de prueba) y `./ml/models` (modelo entrenado).
+La API y los dos workers usan la misma imagen (Python 3.12 con Prodigal, BLAST+ y Mash; Kaptive se instala con pip) y cambian solo el comando. Los datos viven en tres volúmenes con nombre (`pgdata`, `genomas`, `analisis`): sobreviven a `docker compose down` y solo `down -v` los borra. Además se montan `./data` (referencias y genomas de prueba) y `./ml/models` (modelo entrenado).
 
 Solo se publica el puerto 8000. Para dejarlo accesible únicamente desde el mismo equipo, en `docker-compose.yml` se cambia `8000:8000` por `127.0.0.1:8000:8000`.
 
@@ -48,7 +47,7 @@ Se copian de `.env.example` a `.env`, que no se versiona. Las que importan:
 | `API_ENV` | Entorno de ejecución. | `development` |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Duración de la sesión sin actividad; con actividad se renueva sola. | `15` |
 | `LOGIN_MAX_INTENTOS`, `LOGIN_BLOQUEO_MINUTOS` | Intentos fallidos antes de bloquear la cuenta y minutos de bloqueo. | `5` y `15` |
-| `POSTGRES_*`, `MONGO_*` | Servidor, base, usuario y clave de cada base de datos. **Hay que cambiar las claves.** | hosts `postgres` y `mongo`; clave `cambiar` |
+| `POSTGRES_*` | Servidor, base, usuario y clave de la base de datos. **Hay que cambiar la clave.** | host `postgres`; clave `cambiar` |
 | `TABLERO_MINIMO_GRUPO` | Los grupos con menos casos se reúnen en «Otros» en el tablero. Para una demo con pocas solicitudes, bajarlo a `1`. | `5` |
 | `UMBRAL_CANDIDATO` | Probabilidad calibrada desde la que un fago cuenta como candidato en las brechas terapéuticas. | `0.5` |
 | `MODELO_DIR`, `GENOMAS_DIR`, `ANALISIS_DIR` | Carpetas del modelo y de los archivos, dentro del contenedor. | `/app/ml/models`, `/data/genomas`, `/data/analisis` |
@@ -75,8 +74,8 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ```bash
 docker compose up --build -d
-docker compose ps                         # deben verse los 5 servicios
-curl http://localhost:8000/api/v1/salud   # responde: estado ok, postgres ok, mongo ok
+docker compose ps                         # deben verse los 4 servicios
+curl http://localhost:8000/api/v1/salud   # responde: estado ok, postgres ok
 ```
 
 4. **Crear las cuentas de demostración** (una por rol). Las contraseñas quedan en `data/credenciales_demo.txt`, que no se versiona.
@@ -92,11 +91,11 @@ docker compose exec api python -m pipeline.referencias construir
 docker compose exec api python -m pipeline.seed_phage_bank --descargar --hospedador Klebsiella --limite 200
 ```
 
-6. **Entrenar y registrar el modelo.** Hay que descargar los 7 archivos del conjunto PhageHostLearn (registro 11061100 de Zenodo) en `data/raw/phagehostlearn`. Tarda unos 15 minutos. Si `ml/models/` ya trae los artefactos, basta registrarlos con `--sin-entrenar`.
+6. **Entrenar el modelo y cargar el banco.** Hay que descargar los 7 archivos del conjunto PhageHostLearn (registro 11061100 de Zenodo) en `data/raw/phagehostlearn`. Tarda unos 15 minutos. Si `ml/models/` ya trae los artefactos, basta cargar el banco con `--sin-entrenar`. El modelo vigente son los archivos de `ml/models/` (no hay una tabla de modelos): cada predicción guarda una copia de su ficha (versión, algoritmo, fecha de entrenamiento y métricas).
 
 ```bash
 docker compose run --rm worker-prediction python -m ml.entrenar --registrar
-# o, con los artefactos ya guardados:
+# o, con los artefactos ya guardados (no entrena: solo carga el banco):
 docker compose run --rm worker-prediction python -m ml.entrenar --registrar --sin-entrenar
 ```
 
@@ -120,7 +119,7 @@ En Windows, `iniciar_sirfa.bat` enciende Docker Desktop, levanta los servicios y
 ## 7. Pruebas
 
 ```bash
-docker compose exec api pytest      # API y pipeline: 212 pruebas
+docker compose exec api pytest      # API y pipeline: 217 pruebas
 cd mobile && npm test               # app móvil: 38 pruebas de su lógica
 ```
 
@@ -132,17 +131,18 @@ Con el sistema corriendo: `cd mobile`, `npm install` y `npm start`, y abrir con 
 
 ## 9. Seguridad al desplegar
 
-- Cambiar `JWT_SECRET_KEY` y las claves de las dos bases antes de usar el sistema con datos reales; no versionar `.env` ni `data/credenciales_demo.txt`.
+- Cambiar `JWT_SECRET_KEY` y la clave de la base de datos antes de usar el sistema con datos reales; no versionar `.env` ni `data/credenciales_demo.txt`.
 - **HTTPS no está configurado** (RNF-02 queda pendiente fuera del entorno local). Antes de exponer SIRFA fuera de una red de confianza, hay que ponerle delante un proxy inverso con TLS.
-- PostgreSQL y MongoDB no publican puertos. Los permisos por rol los exige el servidor y la auditoría es de solo adición (disparador en PostgreSQL y hashes encadenados).
+- PostgreSQL no publica puertos. Los permisos por rol los exige el servidor y la auditoría es de solo adición (disparador en PostgreSQL y hashes encadenados).
 
 ## 10. Solución de problemas
 
 | Síntoma | Causa probable | Qué hacer |
 |---|---|---|
 | `failed to connect to the docker API` | Docker Desktop está apagado. | Abrirlo, esperar a que arranque y repetir el comando (o usar `iniciar_sirfa.bat`). |
-| `/api/v1/salud` responde 503 | PostgreSQL o MongoDB no están sanos. | `docker compose ps` y `docker compose logs postgres mongo`. |
-| La solicitud queda en «Error»: «No hay un modelo entrenado y registrado» | Falta registrar el modelo. | Paso 6 de la instalación y luego «Reintentar» la solicitud. |
+| `/api/v1/salud` responde 503 | PostgreSQL no está sano. | `docker compose ps` y `docker compose logs postgres`. |
+| Tras actualizar desde la versión de 20 tablas (migración `0004`) | El esquema pasó a 12 tablas (SC-07): `docker compose up -d --build` aplica la migración al arrancar y copia los datos. No se copian dos cosas: el historial de estados de las solicitudes anteriores a la auditoría (2-11-2026), que termina en su estado actual, y las sesiones cerradas justo antes de migrar, que vuelven a servir hasta que venza su token. | Nada que hacer. Para volver atrás: `docker compose exec api alembic -c backend/alembic.ini downgrade 0003`. |
+| La solicitud queda en «Error»: «Faltan los artefactos del modelo» | No hay un modelo entrenado en `ml/models/`. | Paso 6 de la instalación y luego «Reintentar» la solicitud. |
 | La predicción termina en error por falta de fagos | No hay fagos aprobados en el banco. | Paso 7: aprobar fagos en «Banco de fagos». |
 | La especie no se verifica | No se construyeron las referencias. | `docker compose exec api python -m pipeline.referencias construir`. |
 | «Cuenta bloqueada» | Cinco intentos fallidos de inicio de sesión. | Esperar 15 minutos; un administrador puede restablecer la contraseña. |
